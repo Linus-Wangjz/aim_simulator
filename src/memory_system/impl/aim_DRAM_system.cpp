@@ -85,12 +85,22 @@ protected:
             req.addr_vec[m_dram->m_levels("bankgroup")] = -1;
             req.addr_vec[m_dram->m_levels("bank")] = -1;
         } else {
-            if ((req.bank_index < 0) || (req.bank_index >= 16)) {
-                m_logger->error("{} has BA more than 16!", req.str());
+            int num_bankgroups = m_dram->get_level_size("bankgroup");
+            int banks_per_bankgroup = m_dram->get_level_size("bank");
+            int num_banks = num_bankgroups * banks_per_bankgroup;
+            if ((num_bankgroups <= 0) || (banks_per_bankgroup <= 0)) {
+                m_logger->error("{} has invalid bank organization: {} bankgroups, {} banks per bankgroup!",
+                                req.str(),
+                                num_bankgroups,
+                                banks_per_bankgroup);
                 exit(-1);
             }
-            req.addr_vec[m_dram->m_levels("bankgroup")] = req.bank_index / 4;
-            req.addr_vec[m_dram->m_levels("bank")] = req.bank_index % 4;
+            if ((req.bank_index < 0) || (req.bank_index >= num_banks)) {
+                m_logger->error("{} has BA more than {}!", req.str(), num_banks);
+                exit(-1);
+            }
+            req.addr_vec[m_dram->m_levels("bankgroup")] = req.bank_index / banks_per_bankgroup;
+            req.addr_vec[m_dram->m_levels("bank")] = req.bank_index % banks_per_bankgroup;
         }
         req.addr_vec[m_dram->m_levels("row")] = req.row_addr;
         req.addr_vec[m_dram->m_levels("column")] = req.col_addr;

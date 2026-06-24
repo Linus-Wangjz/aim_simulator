@@ -12,9 +12,11 @@ public:
         {"LPDDR4_2Gb_x16", {2 << 10, 16, {1, 1, 4, 4, 1 << 13, 1 << 10}}},
         {"LPDDR4_4Gb_x16", {4 << 10, 16, {1, 1, 4, 4, 1 << 14, 1 << 10}}},
         {"LPDDR4_8Gb_x16", {8 << 10, 16, {1, 1, 4, 4, 1 << 15, 1 << 10}}},
-        {"LPDDR4_16Gb_x16", {16 << 10, 16, {1, 1, 4, 4, 1 << 16, 1 << 10}}},
-        {"LPDDR4_32Gb_x16", {32 << 10, 16, {1, 1, 4, 4, 1 << 17, 1 << 10}}},
-        {"LPDDR4_AiM_org", {32 << 10, 16, {32, 1, 4, 4, 1 << 17, 1 << 10}}},
+        // {"LPDDR4_16Gb_x16", {16 << 10, 16, {1, 1, 4, 4, 1 << 16, 1 << 10}}},
+        // {"LPDDR4_32Gb_x16", {32 << 10, 16, {1, 1, 4, 4, 1 << 17, 1 << 10}}},
+        {"LPDDR4_AiM_org", {4 << 10, 16, {32, 1, 1, 8, 1 << 15, 1 << 10}}},
+        // density (4Gb), DQ (16), {Channel (32), Rank (1), BankGroup (1), Bank (8), Row (2^15), Column (2^10)}
+        // {"Winbond_LPDDR4_4Gb_x16", {4 << 10, 16, {32, 1, 1, 8, 1 << 15, 1 << 10}}},
     };
 
     inline static const std::map<std::string, std::vector<int>> timing_presets = {
@@ -36,7 +38,7 @@ public:
                 29,     // nWR
                 12,     // nRTP
                 11,     // nCWL
-                8,      // nCCD
+                6,      // nCCD
                 16,     // nRRD
                 16,     // nWTRS
                 16,     // nWTRL
@@ -64,11 +66,11 @@ public:
                 4,      // nBL
                 20,     // nCL
                 29,     // nRCD
-                56,     // nRCDRDMAC (from GDDR6)
+                56,     // nRCDRDMAC (+20 cycles as in GDDR6 AIM)
                 25,     // nRCDEWMUL (from GDDR6)
-                86,     // nRCDRDAF (from GDDR6)
-                66,     // nRCDRDCP (from GDDR6)
-                48,     // nRCDWRCP (from GDDR6)
+                79,     // nRCDRDAF (+50 cycles)
+                59,     // nRCDRDCP (+30 cycles)
+                49,     // nRCDWRCP (+20 cycles)
                 34,     // nRPab
                 29,     // nRPpb
                 68,     // nRAS
@@ -76,7 +78,7 @@ public:
                 29,     // nWR
                 12,      // nRTP
                 11,     // nCWL
-                8,      // nCCD
+                6,      // nCCD
                 16,      // nRRD
                 16,      // nWTRS
                 16,     // nWTRL
@@ -734,41 +736,6 @@ private:
                                       {.level = "rank", .preceding = {"REFpb"}, .following = {"ACT16-1"}, .latency = V("nRFCpb")},
 
                                       {.level = "rank", .preceding = {"TMOD"}, .following = {"ACT-1", "ACT-2", "PRE", "PREA", "CASRD", "CASWR", "CASWRGB", "CASWRMAC16", "CASRDMAC16", "CASRDAF16", "CASWRA16", "RD", "WR", "RDA", "WRA", "REFab", "REFpb", "RFMab", "RFMpb", "ACT16-1", "ACT4-1", "ACT16-2", "ACT4-2", "PRE4", "MAC", "MAC16", "AF16", "EWMUL16", "RDCP", "WRCP", "WRGB", "RDMAC16", "RDAF16", "WRMAC16", "WRA16", "SYNC", "EOC"}, .latency = V("nMODCH")},
-
-                                      /****************************************************** Bank Group ******************************************************/
-                                      /// CAS <-> CAS
-                                      {.level = "bankgroup", .preceding = {"RD", "RDA", "MAC", "RDCP"}, .following = {"RD", "RDA", "MAC", "RDCP"}, .latency = V("nCCD")},
-                                      {.level = "bankgroup", .preceding = {"WR", "WRA", "WRCP"}, .following = {"WR", "WRA", "WRCP"}, .latency = V("nCCD")},
-
-                                      /// WR <-> RD
-                                      {.level = "bankgroup", .preceding = {"WR", "WRA"}, .following = {"RD", "RDA"}, .latency = V("nCWL") + V("nBL") + V("nWTRL")},
-
-                                      /// CAS <-> PRE4
-                                      {.level = "bankgroup", .preceding = {"RD", "RDCP", "MAC"}, .following = {"PRE"}, .latency = V("nRTP")},
-                                      {.level = "bankgroup", .preceding = {"WR", "WRCP"}, .following = {"PRE4"}, .latency = V("nCWL") + V("nBL") + V("nWR")},
-
-                                      /// RAS <-> RAS
-                                      {.level = "bankgroup", .preceding = {"ACT-1", "ACT4-1"}, .following = {"ACT-1", "ACT4-1"}, .latency = V("nRRD")},
-                                      {.level = "bankgroup", .preceding = {"ACT4-1"}, .following = {"ACT-1", "ACT4-1"}, .latency = V("nRC")},
-                                      {.level = "bankgroup", .preceding = {"ACT-1", "ACT4-1"}, .following = {"ACT4-1"}, .latency = V("nRC")},
-                                      {.level = "bankgroup", .preceding = {"ACT-1", "ACT4-1"}, .following = {"PRE4"}, .latency = V("nRAS")},
-                                      {.level = "bankgroup", .preceding = {"ACT4-1"}, .following = {"PRE"}, .latency = V("nRAS")},
-                                      {.level = "bankgroup", .preceding = {"PRE"}, .following = {"ACT4-1"}, .latency = V("nRPpb")},
-                                      {.level = "bankgroup", .preceding = {"PRE4"}, .following = {"ACT-1", "ACT4-1"}, .latency = V("nRPab")},
-                                      {.level = "bankgroup", .preceding = {"RDA"}, .following = {"ACT4-1"}, .latency = V("nRTP") + V("nRPpb")},
-                                      {.level = "bankgroup", .preceding = {"WRA"}, .following = {"ACT4-1"}, .latency = V("nCWL") + V("nBL") + V("nWR") + V("nRPpb")},
-
-                                      /// RAS <-> REFpb
-                                      {.level = "bankgroup", .preceding = {"ACT4-1"}, .following = {"REFpb"}, .latency = V("nRC")},
-                                      {.level = "bankgroup", .preceding = {"PRE4"}, .following = {"REFpb"}, .latency = V("nRPab")},
-                                      {.level = "bankgroup", .preceding = {"REFpb"}, .following = {"ACT4-1"}, .latency = V("nRFCpb")},
-
-                                      /// CAS <-> RAS
-                                      {.level = "bankgroup", .preceding = {"ACT4-1"}, .following = {"MAC"}, .latency = V("nRCDRDMAC")},
-                                      {.level = "bankgroup", .preceding = {"ACT4-1"}, .following = {"RDCP"}, .latency = V("nRCDRDCP")},
-                                      {.level = "bankgroup", .preceding = {"ACT4-1"}, .following = {"RD", "RDA"}, .latency = V("nRCD")},
-                                      {.level = "bankgroup", .preceding = {"ACT4-1"}, .following = {"WRCP"}, .latency = V("nRCDWRCP")},
-                                      {.level = "bankgroup", .preceding = {"ACT4-1"}, .following = {"WR", "WRA"}, .latency = V("nRCD")},
 
                                       /****************************************************** Bank ******************************************************/
                                       /// CAS <-> RAS

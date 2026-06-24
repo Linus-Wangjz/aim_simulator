@@ -1,0 +1,36 @@
+# Target: GDDR6 same-bankgroup CAS-to-CAS spacing.
+# With GDDR6 bank mapping, bank 0 and bank 1 are in the same bankgroup.
+# LPDDR4 can run this too, but it has no real bankgroup distinction.
+AiM MAC_SBK 1 0x1 0 0
+AiM MAC_SBK 1 0x1 1 0
+AiM MAC_SBK 1 0x1 0 0
+AiM MAC_SBK 1 0x1 1 0
+AiM MAC_SBK 1 0x1 0 0
+AiM MAC_SBK 1 0x1 1 0
+AiM MAC_SBK 1 0x1 0 0
+AiM MAC_SBK 1 0x1 1 0
+AiM MAC_SBK 1 0x1 0 0
+AiM MAC_SBK 1 0x1 1 0
+AiM MAC_SBK 1 0x1 0 0
+AiM MAC_SBK 1 0x1 1 0
+AiM MAC_SBK 1 0x1 0 0
+AiM MAC_SBK 1 0x1 1 0
+AiM MAC_SBK 1 0x1 0 0
+AiM MAC_SBK 1 0x1 1 0
+AiM MAC_SBK 1 0x1 0 0
+AiM MAC_SBK 1 0x1 1 0
+AiM MAC_SBK 1 0x1 0 0
+AiM MAC_SBK 1 0x1 1 0
+AiM MAC_SBK 1 0x1 0 0
+AiM MAC_SBK 1 0x1 1 0
+AiM MAC_SBK 1 0x1 0 0
+AiM MAC_SBK 1 0x1 1 0
+AiM MAC_SBK 1 0x1 0 0
+AiM MAC_SBK 1 0x1 1 0
+AiM MAC_SBK 1 0x1 0 0
+AiM MAC_SBK 1 0x1 1 0
+AiM MAC_SBK 1 0x1 0 0
+AiM MAC_SBK 1 0x1 1 0
+AiM MAC_SBK 1 0x1 0 0
+AiM MAC_SBK 1 0x1 1 0
+AiM ISR_EOC

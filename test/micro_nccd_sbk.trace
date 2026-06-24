@@ -1,0 +1,6 @@
+# Target: nCCD after one row is opened.
+# One long MAC_SBK request expands to many same-bank, same-row column MACs.
+# Keep opsize below refresh-dominated runtime so nCCD remains the main bottleneck.
+# Useful for LPDDR4 nCCD and GDDR6 nCCDS/nCCDL sensitivity.
+AiM MAC_SBK 512 0x1 0 0
+AiM ISR_EOC

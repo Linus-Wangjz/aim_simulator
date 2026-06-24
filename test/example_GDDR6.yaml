@@ -12,11 +12,11 @@ MemorySystem:
   clock_ratio: 1
 
   DRAM:
-    impl: LPDDR4
+    impl: GDDR6
     org:
-      preset: LPDDR4_AiM_org
+      preset: GDDR6_AiM_org
     timing:
-      preset: LPDDR4_AiM_timing
+      preset: GDDR6_AiM_timing 
 
   Controller:
     impl: AiM
@@ -29,6 +29,3 @@ MemorySystem:
 
   AddrMapper:
     impl: RoBaRaCoCh
-
-
-

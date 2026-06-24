@@ -6,3 +6,4 @@ ramulator2
 *.so
 *.result
 .cache
+output/

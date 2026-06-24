@@ -1,0 +1,11 @@
+# Target: activate-to-activate spacing across different banks from a cold state.
+# LPDDR4_AiM_org has 8 banks; GDDR6 can also run this subset.
+AiM MAC_SBK 1 0x1 0 0
+AiM MAC_SBK 1 0x1 1 0
+AiM MAC_SBK 1 0x1 2 0
+AiM MAC_SBK 1 0x1 3 0
+AiM MAC_SBK 1 0x1 4 0
+AiM MAC_SBK 1 0x1 5 0
+AiM MAC_SBK 1 0x1 6 0
+AiM MAC_SBK 1 0x1 7 0
+AiM ISR_EOC
