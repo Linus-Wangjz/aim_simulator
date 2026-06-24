@@ -1,0 +1,26 @@
+Frontend:
+  impl: AiMTrace
+  clock_ratio: 1
+
+MemorySystem:
+  impl: AiMDRAM
+  clock_ratio: 1
+
+  DRAM:
+    impl: LPDDR4
+    org:
+      preset: LPDDR4_AiM_org
+    timing:
+      preset: LPDDR4_AiM_timing
+
+  Controller:
+    impl: AiM
+    clock_ratio: 1
+    Scheduler:
+      impl: FRFCFS
+    RefreshManager:
+      impl: AllBank
+    plugins:
+
+  AddrMapper:
+    impl: RoBaRaCoCh
