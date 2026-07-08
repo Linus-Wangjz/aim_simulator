@@ -1,0 +1,20 @@
+# GEMV y = A(1024x1024) * x(1024), compute phase with accumulator readout.
+# Mapping assumption:
+# - GDDR6 maps 1024 matrix rows as 2 batches over 32 channels x 16 banks.
+# - Each physical bank uses row 0 for output rows 0..511 and row 1 for output rows 512..1023.
+# - A 1024-wide BF16 row occupies 64 AiM 256b chunks.
+# - The 1024-element vector is written to the AiM Global Buffer.
+# - channel_mask 0xffffffff targets all 32 channels.
+# - MAC_ABK 64 expands to 64 column MAC commands across all banks.
+# - A full 2KB physical row would be 64 chunks: 64 * 256b = 2KB.
+#
+# Note: On LPDDR4_AiM_org, MAC_ABK would cover 32 channels x 8 banks = 256 banks, each bank containing 4 matrix rows (MAC_ABK 64)
+AiM WR_GB 64 0 0xffffffff
+W CFR 0 1
+AiM WR_BIAS 64 0xffffffff
+AiM MAC_ABK 64 0xffffffff 0
+AiM RD_MAC 128 0xffffffff
+AiM WR_BIAS 64 0xffffffff
+AiM MAC_ABK 64 0xffffffff 1
+AiM RD_MAC 128 0xffffffff
+AiM ISR_EOC

@@ -1,0 +1,17 @@
+# GEMV y = A(512) * x(512), compute phase only.
+# Mapping assumption:
+# - The 512 matrix rows are mapped to 32 channels x 16 banks, each bank containing 1 matrix row (512 BF16s).
+# - Each bank uses only row 0.
+# - A 512-wide BF16 row occupies 32 AiM 256b chunks.
+# - The 512-element vector is written to the AiM Global Buffer.
+# - channel_mask 0xffffffff targets all 32 channels.
+# - MAC_ABK 32 expands to 32 column MAC commands across all banks.
+# - A full 2KB physical row would be 64 chunks: 64 * 256b = 2KB.
+#
+# Note: On LPDDR4_AiM_org, MAC_ABK would cover 32 channels x 8 banks = 256 banks, each bank containing 2 matrix rows (MAC_ABK 64)
+AiM WR_GB 32 0 0xffffffff
+W CFR 0 1
+AiM WR_BIAS 64 0xffffffff
+AiM MAC_ABK 32 0xffffffff 0
+AiM RD_MAC 128 0xffffffff
+AiM ISR_EOC

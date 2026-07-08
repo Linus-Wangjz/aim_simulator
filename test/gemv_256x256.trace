@@ -1,0 +1,19 @@
+# GEMV y = A(256x256) * x(256), LPDDR4 all-bank compute phase.
+# LPDDR4_AiM_org has 32 channels x 8 banks = 256 banks.
+# Mapping assumption:
+# - Logical matrix row = channel_id * 8 + bank_id.
+# - Each physical bank uses row 0 only.
+# - A 256-wide BF16 row occupies 16 AiM 256b chunks.
+# - The 256-element vector is written to the AiM Global Buffer.
+# - channel_mask 0xffffffff targets all 32 channels.
+# - MAC_ABK 16 expands to 16 column MAC commands across all banks.
+# - A full 2KB physical row would be 64 chunks: 64 * 256b = 2KB.
+#
+# Note: On GDDR6_AiM_org, MAC_ABK would cover 32 channels x 16 banks = 512 banks,
+# yet half of them are not doing useful computation.
+AiM WR_GB 16 0 0xffffffff
+W CFR 0 1
+AiM WR_BIAS 64 0xffffffff
+AiM MAC_ABK 16 0xffffffff 0
+AiM RD_MAC 128 0xffffffff
+AiM ISR_EOC

@@ -66,7 +66,7 @@ public:
                 4,      // nBL
                 20,     // nCL
                 29,     // nRCD
-                56,     // nRCDRDMAC (+20 cycles as in GDDR6 AIM)
+                49,     // nRCDRDMAC (+20 cycles as in GDDR6 AIM)
                 25,     // nRCDEWMUL (from GDDR6)
                 79,     // nRCDRDAF (+50 cycles)
                 59,     // nRCDRDCP (+30 cycles)

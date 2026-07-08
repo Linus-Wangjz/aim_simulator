@@ -1,0 +1,35 @@
+# GEMV y = A(2048x2048) * x(2048), GDDR6 method 2: keep partial sum in accumulator.
+# Mapping assumption:
+# - GDDR6 maps 2048 matrix rows as 4 output batches over 32 channels x 16 banks.
+# - Each output batch uses row 2*b for columns 0..1023 and row 2*b+1 for columns 1024..2047.
+# - For each output batch, load vector half 0, compute first half, load vector half 1,
+#   then continue MAC without RD_MAC or WR_BIAS between halves.
+# - This avoids GPR partial-sum traffic but reloads both vector halves for every output batch.
+# - GPR0 stores vector half 0, GPR64 stores vector half 1, GPR128 stores zero bias.
+# - GPR512+b receives final outputs for output batch b.
+AiM WR_GB 64 0 0xffffffff
+W CFR 0 1
+AiM WR_BIAS 128 0xffffffff
+AiM MAC_ABK 64 0xffffffff 0
+AiM WR_GB 64 64 0xffffffff
+AiM MAC_ABK 64 0xffffffff 1
+AiM RD_MAC 512 0xffffffff
+AiM WR_GB 64 0 0xffffffff
+AiM WR_BIAS 128 0xffffffff
+AiM MAC_ABK 64 0xffffffff 2
+AiM WR_GB 64 64 0xffffffff
+AiM MAC_ABK 64 0xffffffff 3
+AiM RD_MAC 513 0xffffffff
+AiM WR_GB 64 0 0xffffffff
+AiM WR_BIAS 128 0xffffffff
+AiM MAC_ABK 64 0xffffffff 4
+AiM WR_GB 64 64 0xffffffff
+AiM MAC_ABK 64 0xffffffff 5
+AiM RD_MAC 514 0xffffffff
+AiM WR_GB 64 0 0xffffffff
+AiM WR_BIAS 128 0xffffffff
+AiM MAC_ABK 64 0xffffffff 6
+AiM WR_GB 64 64 0xffffffff
+AiM MAC_ABK 64 0xffffffff 7
+AiM RD_MAC 515 0xffffffff
+AiM ISR_EOC

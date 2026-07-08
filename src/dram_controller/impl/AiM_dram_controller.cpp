@@ -181,14 +181,15 @@ public:
         ReqBuffer *buffer = nullptr;
         bool request_found = schedule_request(req_it, buffer);
 
-        // // 3. Update all plugins
-        // for (auto plugin : m_plugins) {
-        //     plugin->update(request_found, req_it);
-        // }
+        bool plugins_updated = false;
 
-        // 4. Finally, issue the commands to serve the request
+        // 3. Finally, issue the commands to serve the request
         if (request_found) {
             if ((req_it->opcode == Opcode::ISR_EOC) || (req_it->opcode == Opcode::ISR_SYNC)) {
+                for (auto plugin : m_plugins) {
+                    plugin->update(false, req_it);
+                }
+                plugins_updated = true;
                 req_it->depart = m_clk;
                 pending_reads.push_back(*req_it);
                 buffer->remove(req_it);
@@ -207,6 +208,11 @@ public:
                     req_it->command = m_dram->m_commands("TMOD");
                     is_reg_RW_mode = !is_reg_RW_mode;
                 }
+
+                for (auto plugin : m_plugins) {
+                    plugin->update(true, req_it);
+                }
+                plugins_updated = true;
 
                 // If we find a real request to serve
                 // m_logger->info("[CLK {}] Issuing {} for {}", m_clk, std::string(m_dram->m_commands(req_it->command)).c_str(), req_it->str());
@@ -251,6 +257,12 @@ public:
             s_num_precharged_cycles += 1;
         } else {
             s_num_active_cycles += 1;
+        }
+
+        if (!plugins_updated) {
+            for (auto plugin : m_plugins) {
+                plugin->update(false, req_it);
+            }
         }
     };
 
