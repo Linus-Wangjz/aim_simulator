@@ -126,10 +126,10 @@ public:
         "CASRD",
         "CASWR", // WCK2CK Sync
         "CASWRGB",
-        "CASWRMAC16",
-        "CASRDMAC16",
-        "CASRDAF16",
-        "CASWRA16",
+        "CASWRMAC8",
+        "CASRDMAC8",
+        "CASRDAF8",
+        "CASWRA8",
         "RD",
         "WR",
         "RDA",
@@ -144,16 +144,16 @@ public:
         "ACT8-2",
         "PRE4",
         "MAC",
-        "MAC16",
-        "AF16",
-        "EWMUL16",
+        "MAC8",
+        "AF8",
+        "EWMUL8",
         "RDCP",
         "WRCP",
         "WRGB",
-        "RDMAC16",
-        "RDAF16",
-        "WRMAC16",
-        "WRA16",
+        "RDMAC8",
+        "RDAF8",
+        "WRMAC8",
+        "WRA8",
         "TMOD",
         "SYNC",
         "EOC",
@@ -168,10 +168,10 @@ public:
                                   {"CASRD", "rank"},
                                   {"CASWR", "rank"},
                                   {"CASWRGB", "rank"},
-                                  {"CASWRMAC16", "rank"},
-                                  {"CASRDMAC16", "rank"},
-                                  {"CASRDAF16", "rank"},
-                                  {"CASWRA16", "rank"},
+                                  {"CASWRMAC8", "rank"},
+                                  {"CASRDMAC8", "rank"},
+                                  {"CASRDAF8", "rank"},
+                                  {"CASWRA8", "rank"},
                                   {"RD", "column"},
                                   {"WR", "column"},
                                   {"RDA", "column"},
@@ -181,21 +181,21 @@ public:
                                   {"RFMab", "rank"},
                                   {"RFMpb", "rank"},
                                   {"ACT8-1", "rank"},
-                                  {"ACT4-1", "bankgroup"},
                                   {"ACT8-2", "rank"},
+                                  {"ACT4-1", "bankgroup"},
                                   {"ACT4-2", "bankgroup"},
                                   {"PRE4", "bankgroup"},
                                   {"MAC", "column"},
-                                  {"MAC16", "rank"},
-                                  {"AF16", "rank"},
-                                  {"EWMUL16", "rank"},
+                                  {"MAC8", "rank"},
+                                  {"AF8", "rank"},
+                                  {"EWMUL8", "rank"},
                                   {"RDCP", "column"},
                                   {"WRCP", "column"},
                                   {"WRGB", "rank"},
-                                  {"RDMAC16", "rank"},
-                                  {"RDAF16", "rank"},
-                                  {"WRMAC16", "rank"},
-                                  {"WRA16", "rank"},
+                                  {"RDMAC8", "rank"},
+                                  {"RDAF8", "rank"},
+                                  {"WRMAC8", "rank"},
+                                  {"WRA8", "rank"},
                                   {"TMOD", "rank"},
                                   {"SYNC", "rank"},
                                   {"EOC", "rank"},
@@ -211,10 +211,10 @@ public:
                         {"CASRD", {false, false, false, false}},
                         {"CASWR", {false, false, false, false}},
                         {"CASWRGB", {false, false, false, false}},
-                        {"CASWRMAC16", {false, false, false, false}},
-                        {"CASRDMAC16", {false, false, false, false}},
-                        {"CASRDAF16", {false, false, false, false}},
-                        {"CASWRA16", {false, false, false, false}},
+                        {"CASWRMAC8", {false, false, false, false}},
+                        {"CASRDMAC8", {false, false, false, false}},
+                        {"CASRDAF8", {false, false, false, false}},
+                        {"CASWRA8", {false, false, false, false}},
                         {"RD", {false, false, true, false}},
                         {"WR", {false, false, true, false}},
                         {"RDA", {false, true, true, false}},
@@ -229,16 +229,16 @@ public:
                         {"ACT8-2", {true, false, false, false}},
                         {"PRE4", {false, true, false, false}},
                         {"MAC", {false, false, true, false}},
-                        {"MAC16", {false, false, true, false}},
-                        {"AF16", {false, false, false, false}},
-                        {"EWMUL16", {false, false, true, false}},
+                        {"MAC8", {false, false, true, false}},
+                        {"AF8", {false, false, false, false}},
+                        {"EWMUL8", {false, false, true, false}},
                         {"RDCP", {false, false, true, false}},
                         {"WRCP", {false, false, true, false}},
                         {"WRGB", {false, false, false, false}},
-                        {"RDMAC16", {false, false, false, false}},
-                        {"RDAF16", {false, false, false, false}},
-                        {"WRMAC16", {false, false, false, false}},
-                        {"WRA16", {false, true, true, false}},
+                        {"RDMAC8", {false, false, false, false}},
+                        {"RDAF8", {false, false, false, false}},
+                        {"WRMAC8", {false, false, false, false}},
+                        {"WRA8", {false, true, true, false}},
                         {"TMOD", {false, false, false, false}},
                         {"SYNC", {false, false, false, false}},
                         {"EOC", {false, false, false, false}},
@@ -284,19 +284,19 @@ public:
                                         {"MIN", "UNKNOWN"},          // 0 - Unknown and illegal
                                         {"ISR_WR_SBK", "WR"},        // 1 - Write single bank
                                         {"ISR_WR_GB", "WRGB"},       // 2 - Write global buffer
-                                        {"ISR_WR_BIAS", "WRMAC16"},  // 3 - Write all MAC registers
+                                        {"ISR_WR_BIAS", "WRMAC8"},  // 3 - Write all MAC registers
                                         {"ISR_WR_AFLUT", "UNKNOWN"}, // 4 - Unknown and illegal
-                                        {"ISR_RD_MAC", "RDMAC16"},   // 5 - Read all MAC registers
-                                        {"ISR_RD_AF", "RDAF16"},     // 6 - Read all AF16 registers
+                                        {"ISR_RD_MAC", "RDMAC8"},   // 5 - Read all MAC registers
+                                        {"ISR_RD_AF", "RDAF8"},     // 6 - Read all AF8 registers
                                         {"ISR_RD_SBK", "RD"},        // 7 - Read single bank
                                         {"ISR_COPY_BKGB", "RDCP"},   // 8 - Copy from a bank to the global buffer
                                         {"ISR_COPY_GBBK", "WRCP"},   // 9 - Copy from the global buffer to a bank
                                         {"ISR_MAC_SBK", "MAC"},      // 10 - MAC single bank
-                                        {"ISR_MAC_ABK", "MAC16"},    // 11 - MAC all bank
-                                        {"ISR_AF", "AF16"},          // 12 - AF16 all banks
-                                        {"ISR_EWMUL", "EWMUL16"},    // 14 - EWMUL16 all banks or 1 bank group
+                                        {"ISR_MAC_ABK", "MAC8"},    // 11 - MAC all bank
+                                        {"ISR_AF", "AF8"},          // 12 - AF8 all banks
+                                        {"ISR_EWMUL", "EWMUL8"},    // 14 - EWMUL8 all banks or 1 bank group
                                         {"ISR_EWADD", "UNKNOWN"},    // 15 - Unknown and illegal
-                                        {"ISR_WR_ABK", "WRA16"},     // 1 - Write single bank
+                                        {"ISR_WR_ABK", "WRA8"},     // 1 - Write single bank
                                         {"ISR_SYNC", "SYNC"},        // 16 - Unknown and illegal
                                         {"ISR_EOC", "EOC"},          // 16 - Unknown and illegal
                                         {"MAX", "UNKNOWN"},          // 17 - Unknown and illegal
@@ -395,7 +395,7 @@ public:
         m_channels[channel_id]->update_timing(command, addr_vec, m_clk);
         m_channels[channel_id]->update_states(command, addr_vec, m_clk);
         switch (command) {
-        case m_commands["WRA16"]:
+        case m_commands["WRA8"]:
         case m_commands["PREA"]: {
             m_open_rows[channel_id] = 0;
             break;
@@ -637,17 +637,17 @@ private:
         // The followings are directly from GDDR6
         m_command_latencies("WR") = m_timing_vals("nCWL") + m_timing_vals("nBL");
         m_command_latencies("WRGB") = m_timing_vals("nCWLGB") + m_timing_vals("nBL");
-        m_command_latencies("WRMAC16") = m_timing_vals("nCWLREG") + m_timing_vals("nBL");
-        m_command_latencies("RDMAC16") = m_timing_vals("nCLREG") + m_timing_vals("nBL");
-        m_command_latencies("RDAF16") = m_timing_vals("nCLREG") + m_timing_vals("nBL");
+        m_command_latencies("WRMAC8") = m_timing_vals("nCWLREG") + m_timing_vals("nBL");
+        m_command_latencies("RDMAC8") = m_timing_vals("nCLREG") + m_timing_vals("nBL");
+        m_command_latencies("RDAF8") = m_timing_vals("nCLREG") + m_timing_vals("nBL");
         m_command_latencies("RD") = m_timing_vals("nCL") + m_timing_vals("nBL");
         m_command_latencies("RDCP") = 1;
         m_command_latencies("WRCP") = 1;
         m_command_latencies("MAC") = 1;
-        m_command_latencies("MAC16") = 1;
-        m_command_latencies("AF16") = 1;
-        m_command_latencies("EWMUL16") = 1;
-        m_command_latencies("WRA16") = m_timing_vals("nCWL") + m_timing_vals("nBL") + m_timing_vals("nRPab");
+        m_command_latencies("MAC8") = 1;
+        m_command_latencies("AF8") = 1;
+        m_command_latencies("EWMUL8") = 1;
+        m_command_latencies("WRA8") = m_timing_vals("nCWL") + m_timing_vals("nBL") + m_timing_vals("nRPab");
         m_command_latencies("SYNC") = 1;
         m_command_latencies("EOC") = 1;
 
@@ -657,36 +657,36 @@ private:
                                       /*** Channel ***/
                                       // CAS <-> CAS
                                       /// Data bus occupancy
-                                      {.level = "channel", .preceding = {"RD", "RDA", "RDMAC16", "RDAF16"}, .following = {"RD", "RDA", "RDMAC16", "RDAF16"}, .latency = V("nBL")},
-                                      {.level = "channel", .preceding = {"WR", "WRA", "WRA16", "WRGB", "WRMAC16"}, .following = {"WR", "WRA", "WRA16", "WRGB", "WRMAC16"}, .latency = V("nBL")},
+                                      {.level = "channel", .preceding = {"RD", "RDA", "RDMAC8", "RDAF8"}, .following = {"RD", "RDA", "RDMAC8", "RDAF8"}, .latency = V("nBL")},
+                                      {.level = "channel", .preceding = {"WR", "WRA", "WRA8", "WRGB", "WRMAC8"}, .following = {"WR", "WRA", "WRA8", "WRGB", "WRMAC8"}, .latency = V("nBL")},
 
                                       /*** Rank (or different BankGroup) ***/
                                       // CAS <-> CAS
-                                      {.level = "rank", .preceding = {"RD", "RDA", "MAC", "MAC16", "RDCP", "RDMAC16", "RDAF16"}, .following = {"RD", "RDA", "MAC", "MAC16", "RDCP", "RDMAC16", "RDAF16"}, .latency = V("nCCD")},
-                                      {.level = "rank", .preceding = {"WR", "WRA", "WRA16", "WRGB", "WRCP", "WRMAC16"}, .following = {"WR", "WRA", "WRA16", "WRGB", "WRCP", "WRMAC16"}, .latency = V("nCCD")},
-                                      {.level = "rank", .preceding = {"RD", "RDA", "MAC", "RDCP", "RDMAC16", "RDAF16", "MAC16", "EWMUL16"}, .following = {"RDMAC16", "RDAF16", "MAC16", "EWMUL16"}, .latency = V("nCCD")},
-                                      {.level = "rank", .preceding = {"RDMAC16", "RDAF16", "MAC16", "EWMUL16"}, .following = {"RD", "RDA", "MAC", "RDCP", "RDMAC16", "RDAF16", "MAC16", "EWMUL16"}, .latency = V("nCCD")},
-                                      {.level = "rank", .preceding = {"WR", "WRA", "WRCP", "WRA16", "WRMAC16", "EWMUL16"}, .following = {"WRA16", "WRMAC16", "EWMUL16"}, .latency = V("nCCD")},
-                                      {.level = "rank", .preceding = {"WRA16", "WRMAC16", "EWMUL16"}, .following = {"WR", "WRA", "WRCP", "WRA16", "WRMAC16", "EWMUL16"}, .latency = V("nCCD")},
+                                      {.level = "rank", .preceding = {"RD", "RDA", "MAC", "MAC8", "RDCP", "RDMAC8", "RDAF8"}, .following = {"RD", "RDA", "MAC", "MAC8", "RDCP", "RDMAC8", "RDAF8"}, .latency = V("nCCD")},
+                                      {.level = "rank", .preceding = {"WR", "WRA", "WRA8", "WRGB", "WRCP", "WRMAC8"}, .following = {"WR", "WRA", "WRA8", "WRGB", "WRCP", "WRMAC8"}, .latency = V("nCCD")},
+                                      {.level = "rank", .preceding = {"RD", "RDA", "MAC", "RDCP", "RDMAC8", "RDAF8", "MAC8", "EWMUL8"}, .following = {"RDMAC8", "RDAF8", "MAC8", "EWMUL8"}, .latency = V("nCCD")},
+                                      {.level = "rank", .preceding = {"RDMAC8", "RDAF8", "MAC8", "EWMUL8"}, .following = {"RD", "RDA", "MAC", "RDCP", "RDMAC8", "RDAF8", "MAC8", "EWMUL8"}, .latency = V("nCCD")},
+                                      {.level = "rank", .preceding = {"WR", "WRA", "WRCP", "WRA8", "WRMAC8", "EWMUL8"}, .following = {"WRA8", "WRMAC8", "EWMUL8"}, .latency = V("nCCD")},
+                                      {.level = "rank", .preceding = {"WRA8", "WRMAC8", "EWMUL8"}, .following = {"WR", "WRA", "WRCP", "WRA8", "WRMAC8", "EWMUL8"}, .latency = V("nCCD")},
 
                                       /// RD <-> WR, Minimum Read to Write, Assuming tWPRE = 1 tCK
                                       {.level = "rank", .preceding = {"RD", "RDA"}, .following = {"WR", "WRA"}, .latency = V("nCL") + V("nBL") + 2 - V("nCWL")},
-                                      {.level = "rank", .preceding = {"RD", "RDA"}, .following = {"WRA16"}, .latency = V("nCL") + V("nBL") + 2 - V("nCWL")},
-                                      {.level = "rank", .preceding = {"RDMAC16", "RDAF16"}, .following = {"WR", "WRA"}, .latency = V("nCLREG") + V("nBL") + 2 - V("nCWL")},
-                                      {.level = "rank", .preceding = {"RDMAC16", "RDAF16"}, .following = {"WRA16"}, .latency = V("nCLREG") + V("nBL") + 2 - V("nCWL")},
+                                      {.level = "rank", .preceding = {"RD", "RDA"}, .following = {"WRA8"}, .latency = V("nCL") + V("nBL") + 2 - V("nCWL")},
+                                      {.level = "rank", .preceding = {"RDMAC8", "RDAF8"}, .following = {"WR", "WRA"}, .latency = V("nCLREG") + V("nBL") + 2 - V("nCWL")},
+                                      {.level = "rank", .preceding = {"RDMAC8", "RDAF8"}, .following = {"WRA8"}, .latency = V("nCLREG") + V("nBL") + 2 - V("nCWL")},
                                       {.level = "rank", .preceding = {"RD", "RDA"}, .following = {"WRGB"}, .latency = V("nCL") + V("nBL") + 2 - V("nCWLGB")},
-                                      {.level = "rank", .preceding = {"RD", "RDA"}, .following = {"WRMAC16"}, .latency = V("nCL") + V("nBL") + 2 - V("nCWLREG")},
-                                      {.level = "rank", .preceding = {"RDMAC16", "RDAF16"}, .following = {"WRGB"}, .latency = V("nCLREG") + V("nBL") + 2 - V("nCWLGB")},
-                                      {.level = "rank", .preceding = {"RDMAC16", "RDAF16"}, .following = {"WRMAC16"}, .latency = V("nCLREG") + V("nBL") + 2 - V("nCWLREG")},
+                                      {.level = "rank", .preceding = {"RD", "RDA"}, .following = {"WRMAC8"}, .latency = V("nCL") + V("nBL") + 2 - V("nCWLREG")},
+                                      {.level = "rank", .preceding = {"RDMAC8", "RDAF8"}, .following = {"WRGB"}, .latency = V("nCLREG") + V("nBL") + 2 - V("nCWLGB")},
+                                      {.level = "rank", .preceding = {"RDMAC8", "RDAF8"}, .following = {"WRMAC8"}, .latency = V("nCLREG") + V("nBL") + 2 - V("nCWLREG")},
 
                                       /// WR <-> RD, Minimum Read after Write
-                                      {.level = "rank", .preceding = {"WR", "WRA"}, .following = {"RD", "RDA", "RDMAC16", "RDAF16"}, .latency = V("nCWL") + V("nBL") + V("nWTRS")},
-                                      {.level = "rank", .preceding = {"WRA16"}, .following = {"RD", "RDA", "RDMAC16", "RDAF16"}, .latency = V("nCWL") + V("nBL") + V("nWTRS")},
-                                      {.level = "rank", .preceding = {"WRGB"}, .following = {"RD", "RDA", "RDMAC16", "RDAF16"}, .latency = V("nCWLGB") + V("nBL") + V("nWTRS")},
-                                      {.level = "rank", .preceding = {"WRMAC16"}, .following = {"RD", "RDA", "RDMAC16", "RDAF16"}, .latency = V("nCWLREG") + V("nBL") + V("nWTRS")},
-                                      {.level = "rank", .preceding = {"WR", "WRA"}, .following = {"RDMAC16", "RDAF16"}, .latency = V("nCWL") + V("nBL") + V("nWTRL")},
-                                      {.level = "rank", .preceding = {"WRA16"}, .following = {"RD", "RDA", "RDMAC16", "RDAF16"}, .latency = V("nCWL") + V("nBL") + V("nWTRL")},
-                                      {.level = "rank", .preceding = {"WRMAC16"}, .following = {"RD", "RDA", "RDMAC16", "RDAF16"}, .latency = V("nCWLREG") + V("nBL") + V("nWTRL")},
+                                      {.level = "rank", .preceding = {"WR", "WRA"}, .following = {"RD", "RDA", "RDMAC8", "RDAF8"}, .latency = V("nCWL") + V("nBL") + V("nWTRS")},
+                                      {.level = "rank", .preceding = {"WRA8"}, .following = {"RD", "RDA", "RDMAC8", "RDAF8"}, .latency = V("nCWL") + V("nBL") + V("nWTRS")},
+                                      {.level = "rank", .preceding = {"WRGB"}, .following = {"RD", "RDA", "RDMAC8", "RDAF8"}, .latency = V("nCWLGB") + V("nBL") + V("nWTRS")},
+                                      {.level = "rank", .preceding = {"WRMAC8"}, .following = {"RD", "RDA", "RDMAC8", "RDAF8"}, .latency = V("nCWLREG") + V("nBL") + V("nWTRS")},
+                                      {.level = "rank", .preceding = {"WR", "WRA"}, .following = {"RDMAC8", "RDAF8"}, .latency = V("nCWL") + V("nBL") + V("nWTRL")},
+                                      {.level = "rank", .preceding = {"WRA8"}, .following = {"RD", "RDA", "RDMAC8", "RDAF8"}, .latency = V("nCWL") + V("nBL") + V("nWTRL")},
+                                      {.level = "rank", .preceding = {"WRMAC8"}, .following = {"RD", "RDA", "RDMAC8", "RDAF8"}, .latency = V("nCWLREG") + V("nBL") + V("nWTRL")},
 
                                       // TODO
                                       /// CAS <-> CAS between sibling ranks, nCS (rank switching) is needed for new DQS
@@ -694,10 +694,10 @@ private:
                                       {.level = "rank", .preceding = {"WR", "WRA"}, .following = {"RD", "RDA"}, .latency = V("nCL") + V("nBL") + V("nCS") - V("nCWL"), .is_sibling = true},
 
                                       /// CAS <-> PREab
-                                      {.level = "rank", .preceding = {"RD", "RDCP", "MAC", "MAC16", "AF16", "EWMUL16"}, .following = {"PREA"}, .latency = V("nRTP")},
-                                      {.level = "rank", .preceding = {"MAC16", "AF16", "EWMUL16"}, .following = {"PRE", "PRE4"}, .latency = V("nRTP")},
+                                      {.level = "rank", .preceding = {"RD", "RDCP", "MAC", "MAC8", "AF8", "EWMUL8"}, .following = {"PREA"}, .latency = V("nRTP")},
+                                      {.level = "rank", .preceding = {"MAC8", "AF8", "EWMUL8"}, .following = {"PRE", "PRE4"}, .latency = V("nRTP")},
                                       {.level = "rank", .preceding = {"WR", "WRCP"}, .following = {"PREA"}, .latency = V("nCWL") + V("nBL") + V("nWR")},
-                                      {.level = "rank", .preceding = {"EWMUL16"}, .following = {"PRE", "PRE4", "PREA"}, .latency = V("nCWL") + V("nWR")},
+                                      {.level = "rank", .preceding = {"EWMUL8"}, .following = {"PRE", "PRE4", "PREA"}, .latency = V("nCWL") + V("nWR")},
 
                                       /// RAS <-> RAS
                                       {.level = "rank", .preceding = {"ACT-1", "ACT4-1"}, .following = {"ACT-1", "ACT4-1", "REFpb"}, .latency = V("nRRD")},
@@ -716,14 +716,14 @@ private:
                                       {.level = "rank", .preceding = {"ACT8-1"}, .following = {"MAC"}, .latency = V("nRCDRDMAC")},
                                       {.level = "rank", .preceding = {"ACT8-1"}, .following = {"RDCP"}, .latency = V("nRCDRDCP")},
                                       {.level = "rank", .preceding = {"ACT8-1"}, .following = {"WRCP"}, .latency = V("nRCDWRCP")},
-                                      {.level = "rank", .preceding = {"ACT-1", "ACT4-1", "ACT8-1"}, .following = {"MAC16"}, .latency = V("nRCDRDMAC")},
-                                      {.level = "rank", .preceding = {"ACT-1", "ACT4-1", "ACT8-1"}, .following = {"AF16"}, .latency = V("nRCDRDAF")},
-                                      {.level = "rank", .preceding = {"ACT-1", "ACT4-1", "ACT8-1"}, .following = {"EWMUL16"}, .latency = V("nRCDEWMUL")},
-                                      {.level = "rank", .preceding = {"ACT-1", "ACT4-1", "ACT8-1"}, .following = {"WRA16"}, .latency = V("nRCD")},
+                                      {.level = "rank", .preceding = {"ACT-1", "ACT4-1", "ACT8-1"}, .following = {"MAC8"}, .latency = V("nRCDRDMAC")},
+                                      {.level = "rank", .preceding = {"ACT-1", "ACT4-1", "ACT8-1"}, .following = {"AF8"}, .latency = V("nRCDRDAF")},
+                                      {.level = "rank", .preceding = {"ACT-1", "ACT4-1", "ACT8-1"}, .following = {"EWMUL8"}, .latency = V("nRCDEWMUL")},
+                                      {.level = "rank", .preceding = {"ACT-1", "ACT4-1", "ACT8-1"}, .following = {"WRA8"}, .latency = V("nRCD")},
 
                                       {.level = "rank", .preceding = {"RDA"}, .following = {"ACT8-1"}, .latency = V("nRTP") + V("nRPpb")},
                                       {.level = "rank", .preceding = {"WRA"}, .following = {"ACT8-1"}, .latency = V("nCWL") + V("nBL") + V("nWR") + V("nRPpb")},
-                                      {.level = "rank", .preceding = {"WRA16"}, .following = {"ACT-1", "ACT4-1", "ACT8-1"}, .latency = V("nCWL") + V("nBL") + V("nWR") + V("nRPab")},
+                                      {.level = "rank", .preceding = {"WRA8"}, .following = {"ACT-1", "ACT4-1", "ACT8-1"}, .latency = V("nCWL") + V("nBL") + V("nWR") + V("nRPab")},
 
                                       /// RAS <-> REF
 
@@ -737,11 +737,11 @@ private:
                                       {.level = "rank", .preceding = {"PRE4"}, .following = {"REFab"}, .latency = V("nRPab")}, // there could be a new nRPbg
                                       {.level = "rank", .preceding = {"RDA"}, .following = {"REFab"}, .latency = V("nRPpb") + V("nRTP")},
                                       {.level = "rank", .preceding = {"WRA"}, .following = {"REFab"}, .latency = V("nCWL") + V("nBL") + V("nWR") + V("nRPpb")},
-                                      {.level = "rank", .preceding = {"WRA16"}, .following = {"REFpb", "REFab"}, .latency = V("nCWL") + V("nBL") + V("nWR") + V("nRPab")},
+                                      {.level = "rank", .preceding = {"WRA8"}, .following = {"REFpb", "REFab"}, .latency = V("nCWL") + V("nBL") + V("nWR") + V("nRPab")},
                                       {.level = "rank", .preceding = {"REFab"}, .following = {"REFab", "REFpb", "ACT-1", "ACT4-1", "ACT8-1"}, .latency = V("nRFCab")},
                                       {.level = "rank", .preceding = {"REFpb"}, .following = {"ACT8-1"}, .latency = V("nRFCpb")},
 
-                                      {.level = "rank", .preceding = {"TMOD"}, .following = {"ACT-1", "ACT-2", "PRE", "PREA", "CASRD", "CASWR", "CASWRGB", "CASWRMAC16", "CASRDMAC16", "CASRDAF16", "CASWRA16", "RD", "WR", "RDA", "WRA", "REFab", "REFpb", "RFMab", "RFMpb", "ACT8-1", "ACT4-1", "ACT8-2", "ACT4-2", "PRE4", "MAC", "MAC16", "AF16", "EWMUL16", "RDCP", "WRCP", "WRGB", "RDMAC16", "RDAF16", "WRMAC16", "WRA16", "SYNC", "EOC"}, .latency = V("nMODCH")},
+                                      {.level = "rank", .preceding = {"TMOD"}, .following = {"ACT-1", "ACT-2", "PRE", "PREA", "CASRD", "CASWR", "CASWRGB", "CASWRMAC8", "CASRDMAC8", "CASRDAF8", "CASWRA8", "RD", "WR", "RDA", "WRA", "REFab", "REFpb", "RFMab", "RFMpb", "ACT8-1", "ACT4-1", "ACT8-2", "ACT4-2", "PRE4", "MAC", "MAC8", "AF8", "EWMUL8", "RDCP", "WRCP", "WRGB", "RDMAC8", "RDAF8", "WRMAC8", "WRA8", "SYNC", "EOC"}, .latency = V("nMODCH")},
 
                                       /****************************************************** Bank ******************************************************/
                                       /// CAS <-> RAS
@@ -775,7 +775,7 @@ private:
         m_actions.resize(m_levels.size(), std::vector<ActionFunc_t<Node>>(m_commands.size()));
 
         // Rank Actions
-        m_actions[m_levels["rank"]][m_commands["WRA16"]] = Lambdas::Action::Channel::PREab<LPDDR4>;
+        m_actions[m_levels["rank"]][m_commands["WRA8"]] = Lambdas::Action::Channel::PREab<LPDDR4>;
         m_actions[m_levels["rank"]][m_commands["PREA"]] = Lambdas::Action::Rank::PREab<LPDDR4>;
         m_actions[m_levels["rank"]][m_commands["ACT8-1"]] = [](Node *node, int cmd, const AddrVec_t &addr_vec, Clk_t clk) {
             int target_id = addr_vec[node->m_level + 3];
@@ -811,10 +811,10 @@ private:
         ACTION_DEF(RD);
         ACTION_DEF(WR);
         ACTION_DEF(WRGB);
-        ACTION_DEF(WRMAC16);
-        ACTION_DEF(RDMAC16);
-        ACTION_DEF(RDAF16);
-        ACTION_DEF(WRA16);
+        ACTION_DEF(WRMAC8);
+        ACTION_DEF(RDMAC8);
+        ACTION_DEF(RDAF8);
+        ACTION_DEF(WRA8);
 
         // Bank Group Actions
         m_actions[m_levels["bankgroup"]][m_commands["ACT4-1"]] = [](Node *node, int cmd, const AddrVec_t &addr_vec, Clk_t clk) {
@@ -972,10 +972,10 @@ private:
                return cmd;                                                                           \
            }
 
-        PREQ_RANK_ACT_DEF(WRA16);
-        PREQ_RANK_ACT_DEF(MAC16);
-        PREQ_RANK_ACT_DEF(AF16);
-        PREQ_RANK_ACT_DEF(EWMUL16);
+        PREQ_RANK_ACT_DEF(WRA8);
+        PREQ_RANK_ACT_DEF(MAC8);
+        PREQ_RANK_ACT_DEF(AF8);
+        PREQ_RANK_ACT_DEF(EWMUL8);
 
 #define PREQ_RANK_SYNC_DEF(OP, CASOP)                                     \
     m_preqs[m_levels["rank"]]                                             \
@@ -989,10 +989,10 @@ private:
            }
 
         PREQ_RANK_SYNC_DEF(WRGB, CASWRGB);
-        PREQ_RANK_SYNC_DEF(WRMAC16, CASWRMAC16);
-        PREQ_RANK_SYNC_DEF(RDMAC16, CASRDMAC16);
-        PREQ_RANK_SYNC_DEF(RDAF16, CASRDAF16);
-        PREQ_RANK_SYNC_DEF(WRA16, CASWRA16);
+        PREQ_RANK_SYNC_DEF(WRMAC8, CASWRMAC8);
+        PREQ_RANK_SYNC_DEF(RDMAC8, CASRDMAC8);
+        PREQ_RANK_SYNC_DEF(RDAF8, CASRDAF8);
+        PREQ_RANK_SYNC_DEF(WRA8, CASWRA8);
     };
 
     // Not implemented

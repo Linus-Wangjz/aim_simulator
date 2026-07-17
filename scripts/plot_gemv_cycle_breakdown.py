@@ -57,40 +57,43 @@ CONSTRAINT_LABELS = [
 TRANSITION_CONSTRAINT_MAP = {
     ("TMOD", "WRGB"): "nMODCH",
     ("TMOD", "CASWRGB"): "nMODCH",
-    ("TMOD", "CASWRMAC16"): "nMODCH",
-    ("TMOD", "CASRDMAC16"): "nMODCH",
+    ("TMOD", "CASWRMAC8"): "nMODCH",
+    ("TMOD", "CASRDMAC8"): "nMODCH",
     ("TMOD", "RDMAC16"): "nMODCH",
+    ("TMOD", "RDMAC8"): "nMODCH",
     ("TMOD", "ACT16"): "nMODCH",
-    ("TMOD", "ACT16-1"): "nMODCH",
+    ("TMOD", "ACT8-1"): "nMODCH",
     ("TMOD", "PREA"): "nMODCH",
     ("MAC16", "MAC16"): "nCCD/nCCDS",
+    ("MAC8", "MAC8"): "nCCD/nCCDS",
     ("WRGB", "WRGB"): "nCCD/nBL",
     ("WRGB", "WRMAC16"): "nCCD/nBL",
+    ("WRGB", "WRMAC8"): "nCCD/nBL",
     ("WRGB", "CASWRGB"): "nCCD/nBL",
-    ("WRGB", "CASWRMAC16"): "nCCD/nBL",
+    ("WRGB", "CASWRMAC8"): "nCCD/nBL",
     ("ACT16", "MAC16"): "nRCDRDMAC",
-    ("ACT16-2", "MAC16"): "nRCDRDMAC",
+    ("ACT8-2", "MAC8"): "nRCDRDMAC",
     ("PREA", "ACT16"): "nRP/nRPab",
-    ("PREA", "ACT16-1"): "nRP/nRPab",
+    ("PREA", "ACT8-1"): "nRP/nRPab",
     ("PREA", "REFab"): "nRP/nRPab",
-    ("REFab", "ACT16-1"): "nRFCab",
+    ("REFab", "ACT8-1"): "nRFCab",
     ("RDMAC16", "WRGB"): "nRTW",
     ("RDMAC16", "CASWRGB"): "nRTW",
     ("RDMAC16", "WRMAC16"): "nRTW",
-    ("RDMAC16", "CASWRMAC16"): "nRTW",
+    ("RDMAC8", "WRGB"): "nRTW",
+    ("RDMAC8", "CASWRGB"): "nRTW",
+    ("RDMAC8", "WRMAC8"): "nRTW",
+    ("RDMAC8", "CASWRMAC8"): "nRTW",
     ("CASWRGB", "WRGB"): "CAS sync",
-    ("CASWRMAC16", "WRMAC16"): "CAS sync",
-    ("CASRDMAC16", "RDMAC16"): "CAS sync",
-    ("ACT16-1", "ACT16-2"): "ACT all-bank split",
+    ("CASWRMAC8", "WRMAC8"): "CAS sync",
+    ("CASRDMAC8", "RDMAC8"): "CAS sync",
+    ("ACT8-1", "ACT8-2"): "ACT all-bank split",
     ("WRMAC16", "TMOD"): "Issue gap",
+    ("WRMAC8", "TMOD"): "Issue gap",
     ("MAC16", "TMOD"): "Issue gap",
+    ("MAC8", "TMOD"): "Issue gap",
     ("WRGB", "TMOD"): "Issue gap",
     ("REFab", "TMOD"): "Issue gap",
-}
-
-LPDDR4_ACT_COMMAND_ALIASES = {
-    "ACT8-1": "ACT16-1",
-    "ACT8-2": "ACT16-2",
 }
 
 COMMAND_TRACE_RE = re.compile(r"^\s*(\d+)\s*,\s*([^,]+)\s*,")
@@ -175,18 +178,18 @@ def run_ramulator(ramulator: Path, config: Path, trace: Path, output: Path, root
 
 
 def normalize_command(command: str) -> str:
-    return LPDDR4_ACT_COMMAND_ALIASES.get(command, command)
+    return command
 
 
 def command_component(command: str) -> str:
     command = normalize_command(command)
     if command in {"CASWRGB", "WRGB"}:
         return "WR_GB"
-    if command in {"CASWRMAC16", "WRMAC16"}:
+    if command in {"WRMAC16", "CASWRMAC8", "WRMAC8"}:
         return "WR_BIAS"
-    if command in {"CASRDMAC16", "RDMAC16"}:
+    if command in {"RDMAC16", "CASRDMAC8", "RDMAC8"}:
         return "RD_MAC"
-    if command in {"MAC", "MAC16"}:
+    if command in {"MAC", "MAC16", "MAC8"}:
         return "MAC_ABK"
     if command == "TMOD":
         return "TMOD"

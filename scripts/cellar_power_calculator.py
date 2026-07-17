@@ -7,6 +7,7 @@ KILO = 1000
 MEGA = 1000000
 GIGA = 1000000000
 FREQ = 2.00 * GIGA
+PIM_FREQ = 1.00 * GIGA
 
 CH_PER_DV = 32.00
 
@@ -45,24 +46,27 @@ LPDDR4_COMMANDS = [
     "CASRD",
     "CASWR",
     "CASWRGB",
-    "CASWRMAC16",
-    "CASRDMAC16",
-    "CASRDAF16",
-    "CASWRA16",
+    "CASWRMAC8",
+    "CASRDMAC8",
+    "CASRDAF8",
+    "CASWRA8",
     "RFMab",
     "RFMpb",
     "ACT4-1",
     "ACT8-1",
-    "ACT16-1",
     "ACT4-2",
     "ACT8-2",
-    "ACT16-2",
+    "MAC8",
+    "AF8",
+    "EWMUL8",
+    "RDMAC8",
+    "RDAF8",
+    "WRMAC8",
+    "WRA8",
 ]
 
-# Superset of commands emitted by the GDDR6 and LPDDR4 AiM models. LPDDR4's
-# split activation uses ACT8-* because the current LPDDR4 org has eight banks.
-# MAC16/RDMAC16/etc. keep the 16 suffix because that denotes the 16-BF16
-# datapath chunk, not the number of activated banks.
+# Superset of commands emitted by the GDDR6 and LPDDR4 AiM models. GDDR6 uses
+# the *16 all-bank command family; LPDDR4_AiM_org has eight banks and emits *8.
 commands = list(dict.fromkeys(GDDR6_COMMANDS + LPDDR4_COMMANDS))
 
 isrs =  ["WR_SBK",
@@ -256,39 +260,64 @@ def power_calculator(stat, PCIE_bits, Head, HiddenDim, Tokens, GQA):
     energy = {}
     latency = {}
     dram_power = dram_power_for_impl(stat["dram_impl"])
-    act_bank_count = 8.00 if stat["dram_impl"] == "LPDDR4" else 16.00
 
     # LPDDR4 splits activation into ACT*-1/ACT*-2. Only ACT*-2 is marked as
-    # the actual opening command. ACT8-* is bank fanout; MAC16/RDMAC16/etc.
-    # are 16-BF16 datapath operations and are not scaled by act_bank_count.
-    act_equiv = stat["ACT"] + stat["ACT-2"]
-    act_equiv += 4.00 * (stat["ACT4"] + stat["ACT4-2"])
-    act_equiv += 16.00 * stat["ACT16"]
-    act_equiv += act_bank_count * (stat["ACT8-2"] + stat["ACT16-2"])
+    # the actual opening command.
+    if stat["dram_impl"] == "LPDDR4":
+        all_bank_count = 8.00
+        act_equiv = stat["ACT-2"]
+        act_equiv += 4.00 * stat["ACT4-2"]
+        act_equiv += all_bank_count * stat["ACT8-2"]
 
-    rd_data_commands = stat["RDCP"] + stat["RD"] + stat["RDA"]
-    rd_data_commands += 16.00 * stat["AF16"] + stat["RDMAC16"] + stat["RDAF16"]
+        rd_data_commands = stat["RDCP"] + stat["RD"] + stat["RDA"]
+        rd_data_commands += all_bank_count * stat["AF8"] + stat["RDMAC8"] + stat["RDAF8"]
 
-    wr_data_commands = stat["WRCP"] + stat["WR"] + stat["WRA"]
-    wr_data_commands += stat["WRMAC16"] + 16.00 * stat["WRA16"]
+        wr_data_commands = stat["WRCP"] + stat["WR"] + stat["WRA"]
+        wr_data_commands += stat["WRMAC8"] + all_bank_count * stat["WRA8"]
 
-    pim_commands = stat["MAC"] / 16.00 + stat["MAC16"] + stat["EWMUL16"] / 4.00
-    pim_tccd_ns = stat["pim_tccd_cycles"] * GIGA / FREQ
+        pim_commands = stat["MAC"] / all_bank_count
+        pim_commands += stat["MAC8"]
+
+    elif stat["dram_impl"] == "GDDR6":
+        all_bank_count = 16.00
+        act_equiv = stat["ACT"]
+        act_equiv += 4.00 * stat["ACT4"]
+        act_equiv += all_bank_count * stat["ACT16"]
+
+        rd_data_commands = stat["RDCP"] + stat["RD"] + stat["RDA"]
+        rd_data_commands += all_bank_count * stat["AF16"] + stat["RDMAC16"] + stat["RDAF16"]
+
+        wr_data_commands = stat["WRCP"] + stat["WR"] + stat["WRA"]
+        wr_data_commands += stat["WRMAC16"] + all_bank_count * stat["WRA16"]
+
+        pim_commands = stat["MAC"] / all_bank_count
+        pim_commands += stat["MAC16"]
+    else:
+        raise ValueError(f"Unknown DRAM impl '{stat['dram_impl']}'. Expected one of: {', '.join(DRAM_POWER_BY_IMPL)}")
+
+    pim_commands += (stat["EWMUL16"] + stat["EWMUL8"]) / 4.00
+    pim_cycle_ns = GIGA / PIM_FREQ
 
     dq_commands = stat["RD"] + stat["WR"] + stat["RDA"] + stat["WRA"]
     dq_commands += stat["WRGB"] + stat["RDMAC16"] + stat["RDAF16"] + stat["WRMAC16"] + stat["WRA16"]
+    dq_commands += stat["RDMAC8"] + stat["RDAF8"] + stat["WRMAC8"] + stat["WRA8"]
 
     # TODO: should we use the tRC or tRCD?
     energy["ACT/PRE"] = dram_power["ACT"] * act_equiv * tRC / GIGA
     energy["RD"] = dram_power["RD"] * rd_data_commands * tBL / GIGA
     energy["WR"] = dram_power["WR"] * wr_data_commands * tBL / GIGA
-    energy["PIM"] = 3 * dram_power["RD"] * pim_commands * pim_tccd_ns / GIGA
+    energy["PIM"] = 3 * dram_power["RD"] * pim_commands * pim_cycle_ns / GIGA
     energy["ACT_STBY"] = dram_power["ACT_STBY"] * CH_PER_DV * stat["active_latency"] / KILO
     energy["PRE_STBY"] = dram_power["PRE_STBY"] * CH_PER_DV * stat["precharged_latency"] / KILO
     energy["DQ"] = DQ_ENERGY * WORD_SIZE * dq_commands / GIGA
     energy["PCIe"] = PCIE_bits * PCIE_ENERGY / GIGA
 
-    ISR_COUNT = stat["RD"] + stat["WR"] + stat["RDA"] + stat["WRA"] + stat["MAC"] + stat["MAC16"] + stat["AF16"] + stat["EWMUL16"] + stat["RDCP"] + stat["WRCP"] + stat["WRGB"] + stat["RDMAC16"] + stat["RDAF16"] + stat["WRMAC16"] + stat["WRA16"]
+    ISR_COUNT = stat["RD"] + stat["WR"] + stat["RDA"] + stat["WRA"]
+    ISR_COUNT += stat["MAC"] + stat["MAC16"] + stat["MAC8"]
+    ISR_COUNT += stat["AF16"] + stat["AF8"] + stat["EWMUL16"] + stat["EWMUL8"]
+    ISR_COUNT += stat["RDCP"] + stat["WRCP"] + stat["WRGB"]
+    ISR_COUNT += stat["RDMAC16"] + stat["RDAF16"] + stat["WRMAC16"] + stat["WRA16"]
+    ISR_COUNT += stat["RDMAC8"] + stat["RDAF8"] + stat["WRMAC8"] + stat["WRA8"]
     CMD_COUNT = sum(stat[x] for x in commands)
     energy["MEM_CTR"] = (CTRL_POWER["TRX"] * ISR_COUNT + CTRL_POWER["PHY"] * CMD_COUNT) / CH_PER_CTRL / FREQ
 
