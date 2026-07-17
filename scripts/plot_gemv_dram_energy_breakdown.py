@@ -57,6 +57,7 @@ DRAM_POWER_COLUMNS = {
     "PRE_STBY": "PRE_STBY_W",
 }
 LPDDR4_DRAM_RE = re.compile(r"^LPDDR4_nCCD(\d+)$")
+LPDDR4X_DRAM_RE = re.compile(r"^LPDDR4X_nCCD(\d+)$")
 NCCD_RE = re.compile(r"^\s*nCCD:\s*(\d+)\s*$", re.MULTILINE)
 
 
@@ -129,27 +130,46 @@ def result_name(workload_name: str, dram: str, lpddr4_nccd: int | None = None) -
     return f"output_{workload_name}_gddr6.result"
 
 
-def dram_name(dram: str, nccd: int | None = None) -> str:
+def dram_name(dram: str, nccd: int | None = None, show_nccd: bool = True) -> str:
     if dram == "gddr6":
         return "GDDR6"
-    if nccd is None:
-        raise ValueError("LPDDR4 names require nCCD")
-    return f"LPDDR4_nCCD{nccd}"
+    if dram in {"lpddr4", "lpddr4x"}:
+        if nccd is None:
+            raise ValueError("LPDDR4 names require nCCD")
+        base = "LPDDR4" if dram == "lpddr4" else "LPDDR4X"
+        return f"{base}_nCCD{nccd}" if show_nccd else base
+    raise ValueError(f"unknown DRAM name: {dram}")
 
 
 def dram_label(dram: str) -> str:
+    if dram == "GDDR6":
+        return "G6"
+    if dram == "LPDDR4":
+        return "LP4"
+    if dram == "LPDDR4X":
+        return "LP4X"
     match = LPDDR4_DRAM_RE.match(dram)
     if match:
         return f"LP4\nn{match.group(1)}"
-    return "G6"
+    match = LPDDR4X_DRAM_RE.match(dram)
+    if match:
+        return f"LP4X\nn{match.group(1)}"
+    return dram
 
 
 def dram_sort_key(dram: str) -> tuple[int, int]:
     match = LPDDR4_DRAM_RE.match(dram)
     if dram == "GDDR6":
         return (0, 0)
+    if dram == "LPDDR4":
+        return (1, 0)
+    if dram == "LPDDR4X":
+        return (2, 0)
     if match:
         return (1, int(match.group(1)))
+    match = LPDDR4X_DRAM_RE.match(dram)
+    if match:
+        return (2, int(match.group(1)))
     return (2, 0)
 
 
@@ -161,7 +181,11 @@ def set_cellar_channel_count(ch_per_dv: int) -> None:
     }
 
 
-def dram_energy_from_result(result: Path, hidden_dim: int) -> tuple[dict[str, float], dict[str, float]]:
+def dram_energy_from_result(
+    result: Path,
+    hidden_dim: int,
+    dram_power_impl: str | None = None,
+) -> tuple[dict[str, float], dict[str, float]]:
     stat = cellar.command_processor(str(result))
     # Non-DRAM calculator inputs are dummies here; only DRAM energy components
     # are consumed below.
@@ -172,8 +196,42 @@ def dram_energy_from_result(result: Path, hidden_dim: int) -> tuple[dict[str, fl
         HiddenDim=hidden_dim,
         Tokens=1,
         GQA=1,
+        dram_power_impl=dram_power_impl,
     )
     return energy, stat
+
+
+def append_energy_row(
+    rows: list[dict[str, str]],
+    workload: dict[str, object],
+    dram: str,
+    nccd: int | None,
+    energy: dict[str, float],
+    stat: dict[str, float],
+    output: Path,
+    trace: Path,
+    root: Path,
+) -> None:
+    latency_ms = stat["latency"]
+    total_dram_mj = sum(energy[comp] for comp in DRAM_ENERGY_COMPONENTS)
+    row = {
+        "size": str(workload["size"]),
+        "workload": str(workload["name"]),
+        "dram": dram,
+        "lpddr4_nccd": "" if nccd is None else str(nccd),
+        "memory_system_cycles": f"{stat['cycles']:.0f}",
+        "gemv_latency_ms": f"{latency_ms:.12g}",
+        "pim_tccd_cycles": f"{stat['pim_tccd_cycles']:.0f}",
+        "pim_tccd_ns": f"{stat['pim_tccd_cycles'] * cellar.GIGA / cellar.FREQ:.12g}",
+        "total_dram_mJ": f"{total_dram_mj:.12g}",
+        "total_dram_W": f"{total_dram_mj / latency_ms:.12g}",
+        "output": display_path(output, root),
+        "trace": display_path(trace, root),
+    }
+    for comp in DRAM_ENERGY_COMPONENTS:
+        row[comp] = f"{energy[comp]:.12g}"
+        row[DRAM_POWER_COLUMNS[comp]] = f"{energy[comp] / latency_ms:.12g}"
+    rows.append(row)
 
 
 def build_rows(args: argparse.Namespace) -> list[dict[str, str]]:
@@ -183,6 +241,7 @@ def build_rows(args: argparse.Namespace) -> list[dict[str, str]]:
     set_cellar_channel_count(args.ch_per_dv)
 
     rows: list[dict[str, str]] = []
+    show_lpddr4_nccd = len(args.lpddr4_nccd_values) > 1
     with tempfile.TemporaryDirectory(prefix="lpddr4_energy_nccd_", dir=root / "output") as tmp:
         tmp_dir = Path(tmp)
 
@@ -209,26 +268,35 @@ def build_rows(args: argparse.Namespace) -> list[dict[str, str]]:
                     run_ramulator(args.ramulator, config, trace, output, root)
 
                 energy, stat = dram_energy_from_result(output, workload["size"])
-                latency_ms = stat["latency"]
-                total_dram_mj = sum(energy[comp] for comp in DRAM_ENERGY_COMPONENTS)
-                row = {
-                    "size": str(workload["size"]),
-                    "workload": workload["name"],
-                    "dram": dram_name(dram, nccd),
-                    "lpddr4_nccd": "" if nccd is None else str(nccd),
-                    "memory_system_cycles": f"{stat['cycles']:.0f}",
-                    "gemv_latency_ms": f"{latency_ms:.12g}",
-                    "pim_tccd_cycles": f"{stat['pim_tccd_cycles']:.0f}",
-                    "pim_tccd_ns": f"{stat['pim_tccd_cycles'] * cellar.GIGA / cellar.FREQ:.12g}",
-                    "total_dram_mJ": f"{total_dram_mj:.12g}",
-                    "total_dram_W": f"{total_dram_mj / latency_ms:.12g}",
-                    "output": display_path(output, root),
-                    "trace": display_path(trace, root),
-                }
-                for comp in DRAM_ENERGY_COMPONENTS:
-                    row[comp] = f"{energy[comp]:.12g}"
-                    row[DRAM_POWER_COLUMNS[comp]] = f"{energy[comp] / latency_ms:.12g}"
-                rows.append(row)
+                append_energy_row(
+                    rows,
+                    workload,
+                    dram_name(dram, nccd, show_nccd=show_lpddr4_nccd),
+                    nccd,
+                    energy,
+                    stat,
+                    output,
+                    trace,
+                    root,
+                )
+
+                if dram == "lpddr4":
+                    lpddr4x_energy, lpddr4x_stat = dram_energy_from_result(
+                        output,
+                        workload["size"],
+                        dram_power_impl="LPDDR4X",
+                    )
+                    append_energy_row(
+                        rows,
+                        workload,
+                        dram_name("lpddr4x", nccd, show_nccd=show_lpddr4_nccd),
+                        nccd,
+                        lpddr4x_energy,
+                        lpddr4x_stat,
+                        output,
+                        trace,
+                        root,
+                    )
 
     return rows
 
@@ -330,10 +398,11 @@ def total_value(row: dict[str, str], metric: str) -> float:
 
 def metric_title(metric: str, lpddr4_nccd_values: list[int]) -> str:
     nccd_text = ",".join(str(value) for value in lpddr4_nccd_values)
+    timing_text = f"LPDDR4 timing nCCD={nccd_text}"
     if metric == "energy":
-        return f"GEMV DRAM Energy Breakdown: GDDR6 vs LPDDR4 nCCD={nccd_text}"
+        return f"GEMV DRAM Energy Breakdown: GDDR6 vs LPDDR4 vs LPDDR4X ({timing_text})"
     if metric == "power":
-        return f"GEMV Average DRAM Power Breakdown: GDDR6 vs LPDDR4 nCCD={nccd_text}"
+        return f"GEMV Average DRAM Power Breakdown: GDDR6 vs LPDDR4 vs LPDDR4X ({timing_text})"
     raise ValueError(f"unknown plot metric: {metric}")
 
 
@@ -507,7 +576,7 @@ def main() -> int:
     parser.add_argument("--lpddr4-yaml", type=Path, default=root / "test/example_LPDDR4.yaml")
     parser.add_argument("--gddr6-yaml", type=Path, default=root / "test/example_GDDR6.yaml")
     parser.add_argument("--output-dir", type=Path, default=root / "output/gemv_dram_energy_breakdown")
-    parser.add_argument("--nccd-values", default="2,4,6,8")
+    parser.add_argument("--nccd-values", default="6")
     parser.add_argument("--ch-per-dv", type=int, default=32)
     parser.add_argument("--reuse-existing", action="store_true", help="Reuse existing .result files instead of rerunning them.")
     parser.add_argument("--no-plot", action="store_true", help="Skip matplotlib plot generation.")

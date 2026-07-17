@@ -94,6 +94,7 @@ DEFAULT_PIM_TCCD_CYCLES = {
     "GDDR6": 2.00,
     # LPDDR4_AiM_timing default; sweep outputs override this through _nCCDx.
     "LPDDR4": 6.00,
+    "LPDDR4X": 6.00,
 }
 NCCD_PATH_RE = re.compile(r"_nCCD(\d+)")
 
@@ -125,9 +126,18 @@ LPDDR4_DRAM_POWER = {
     "RD": 1.8 * (2.5 - 2) + 1.1 * (287 - 34.5) + 1.1 * (105 - 0.1),
 }
 
+LPDDR4X_DRAM_POWER = {
+    "ACT_STBY": 1.8 * 2 + 1.1 * 34.5 + 0.6 * 0.1,
+    "PRE_STBY": 1.8 * 0.6 + 1.1 * 31 + 0.6 * 0.1,
+    "ACT": 1.8 * (9 - 2) + 1.1 * (53 - 34.5) + 0.6 * (0.1 - 0.1),
+    "WR": 1.8 * (2 - 2) + 1.1 * (265 - 34.5) + 0.6 * (0.3 - 0.1),
+    "RD": 1.8 * (2.5 - 2) + 1.1 * (287 - 34.5) + 0.6 * (85 - 0.1),
+}
+
 DRAM_POWER_BY_IMPL = {
     "GDDR6": GDDR6_DRAM_POWER,
     "LPDDR4": LPDDR4_DRAM_POWER,
+    "LPDDR4X": LPDDR4X_DRAM_POWER,
 }
 
 # RED: Reduction Tree
@@ -214,7 +224,7 @@ def command_processor(stat_path):
             stat["cycles"] = float(words[1])
         if words[0] == "impl:" and len(words) > 1:
             impl = words[1].strip()
-            if impl in {"GDDR6", "LPDDR4"}:
+            if impl in {"GDDR6", "LPDDR4", "LPDDR4X"}:
                 stat["dram_impl"] = impl
         if "idle_cycles" in words[0]:
             stat["idle_cycles"] = float(words[1])
@@ -229,7 +239,7 @@ def command_processor(stat_path):
             if "total_num_AiM_ISR_" + isr + "_requests" in words[0]:
                 stat[isr] += float(words[1])
 
-    if stat["dram_impl"] == "LPDDR4":
+    if stat["dram_impl"] in {"LPDDR4", "LPDDR4X"}:
         match = NCCD_PATH_RE.search(str(stat_path))
         if match:
             stat["pim_tccd_cycles"] = float(match.group(1))
@@ -256,14 +266,15 @@ def dram_power_for_impl(dram_impl):
         raise ValueError(f"Fill {dram_impl}_DRAM_POWER values for: {', '.join(missing)}")
     return dram_power
 
-def power_calculator(stat, PCIE_bits, Head, HiddenDim, Tokens, GQA):
+def power_calculator(stat, PCIE_bits, Head, HiddenDim, Tokens, GQA, dram_power_impl=None):
     energy = {}
     latency = {}
-    dram_power = dram_power_for_impl(stat["dram_impl"])
+    timing_impl = stat["dram_impl"]
+    dram_power = dram_power_for_impl(dram_power_impl or timing_impl)
 
     # LPDDR4 splits activation into ACT*-1/ACT*-2. Only ACT*-2 is marked as
     # the actual opening command.
-    if stat["dram_impl"] == "LPDDR4":
+    if timing_impl in {"LPDDR4", "LPDDR4X"}:
         all_bank_count = 8.00
         act_equiv = stat["ACT-2"]
         act_equiv += 4.00 * stat["ACT4-2"]
@@ -278,7 +289,7 @@ def power_calculator(stat, PCIE_bits, Head, HiddenDim, Tokens, GQA):
         pim_commands = stat["MAC"] / all_bank_count
         pim_commands += stat["MAC8"]
 
-    elif stat["dram_impl"] == "GDDR6":
+    elif timing_impl == "GDDR6":
         all_bank_count = 16.00
         act_equiv = stat["ACT"]
         act_equiv += 4.00 * stat["ACT4"]
@@ -293,7 +304,7 @@ def power_calculator(stat, PCIE_bits, Head, HiddenDim, Tokens, GQA):
         pim_commands = stat["MAC"] / all_bank_count
         pim_commands += stat["MAC16"]
     else:
-        raise ValueError(f"Unknown DRAM impl '{stat['dram_impl']}'. Expected one of: {', '.join(DRAM_POWER_BY_IMPL)}")
+        raise ValueError(f"Unknown DRAM impl '{timing_impl}'. Expected timing impl GDDR6 or LPDDR4")
 
     pim_commands += (stat["EWMUL16"] + stat["EWMUL8"]) / 4.00
     pim_cycle_ns = GIGA / PIM_FREQ
