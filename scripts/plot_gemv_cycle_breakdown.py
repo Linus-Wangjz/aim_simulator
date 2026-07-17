@@ -49,7 +49,7 @@ CONSTRAINT_LABELS = [
     "nRFCab",
     "nRTW",
     "CAS sync",
-    "ACT16 split",
+    "ACT all-bank split",
     "Issue gap",
     "Other",
 ]
@@ -81,11 +81,16 @@ TRANSITION_CONSTRAINT_MAP = {
     ("CASWRGB", "WRGB"): "CAS sync",
     ("CASWRMAC16", "WRMAC16"): "CAS sync",
     ("CASRDMAC16", "RDMAC16"): "CAS sync",
-    ("ACT16-1", "ACT16-2"): "ACT16 split",
+    ("ACT16-1", "ACT16-2"): "ACT all-bank split",
     ("WRMAC16", "TMOD"): "Issue gap",
     ("MAC16", "TMOD"): "Issue gap",
     ("WRGB", "TMOD"): "Issue gap",
     ("REFab", "TMOD"): "Issue gap",
+}
+
+LPDDR4_ACT_COMMAND_ALIASES = {
+    "ACT8-1": "ACT16-1",
+    "ACT8-2": "ACT16-2",
 }
 
 COMMAND_TRACE_RE = re.compile(r"^\s*(\d+)\s*,\s*([^,]+)\s*,")
@@ -169,7 +174,12 @@ def run_ramulator(ramulator: Path, config: Path, trace: Path, output: Path, root
         raise RuntimeError(f"Command failed ({proc.returncode}): {' '.join(cmd)}\nSee {output}")
 
 
+def normalize_command(command: str) -> str:
+    return LPDDR4_ACT_COMMAND_ALIASES.get(command, command)
+
+
 def command_component(command: str) -> str:
+    command = normalize_command(command)
     if command in {"CASWRGB", "WRGB"}:
         return "WR_GB"
     if command in {"CASWRMAC16", "WRMAC16"}:
@@ -190,6 +200,8 @@ def transition_constraint(transition: str) -> str:
         preceding, following = transition.split("->", 1)
     except ValueError:
         return "Other"
+    preceding = normalize_command(preceding)
+    following = normalize_command(following)
     return TRANSITION_CONSTRAINT_MAP.get((preceding, following), "Other")
 
 
@@ -609,7 +621,7 @@ def constraint_colors() -> dict[str, str]:
         "nRFCab": "#B279A2",
         "nRTW": "#FF9DA6",
         "CAS sync": "#9D755D",
-        "ACT16 split": "#8CD17D",
+        "ACT all-bank split": "#8CD17D",
         "Issue gap": "#D4A6C8",
         "Other": "#BAB0AC",
     }

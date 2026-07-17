@@ -139,9 +139,9 @@ public:
         "RFMab",
         "RFMpb",
         "ACT4-1",
-        "ACT16-1",
+        "ACT8-1",
         "ACT4-2",
-        "ACT16-2",
+        "ACT8-2",
         "PRE4",
         "MAC",
         "MAC16",
@@ -180,9 +180,9 @@ public:
                                   {"REFpb", "rank"},
                                   {"RFMab", "rank"},
                                   {"RFMpb", "rank"},
-                                  {"ACT16-1", "rank"},
+                                  {"ACT8-1", "rank"},
                                   {"ACT4-1", "bankgroup"},
-                                  {"ACT16-2", "rank"},
+                                  {"ACT8-2", "rank"},
                                   {"ACT4-2", "bankgroup"},
                                   {"PRE4", "bankgroup"},
                                   {"MAC", "column"},
@@ -224,9 +224,9 @@ public:
                         {"RFMab", {false, false, false, true}},
                         {"RFMpb", {false, false, false, true}},
                         {"ACT4-1", {false, false, false, false}},
-                        {"ACT16-1", {false, false, false, false}},
+                        {"ACT8-1", {false, false, false, false}},
                         {"ACT4-2", {true, false, false, false}},
-                        {"ACT16-2", {true, false, false, false}},
+                        {"ACT8-2", {true, false, false, false}},
                         {"PRE4", {false, true, false, false}},
                         {"MAC", {false, false, true, false}},
                         {"MAC16", {false, false, true, false}},
@@ -414,8 +414,14 @@ public:
             m_open_rows[channel_id] &= ~((uint16_t)(1 << bank_id));
             break;
         }
-        case m_commands["ACT16-2"]: {
-            m_open_rows[channel_id] = (uint16_t)(0xFFFF);
+        case m_commands["ACT8-2"]: {
+            uint16_t open_mask = 0;
+            int bankgroup_count = m_organization.count[m_levels["bankgroup"]];
+            int bank_count = m_organization.count[m_levels["bank"]];
+            for (int bank_id = 0; bank_id < bankgroup_count * bank_count; bank_id++) {
+                open_mask |= (uint16_t)(1 << bank_id);
+            }
+            m_open_rows[channel_id] = open_mask;
             break;
         }
         case m_commands["ACT4-2"]: {
@@ -695,47 +701,47 @@ private:
 
                                       /// RAS <-> RAS
                                       {.level = "rank", .preceding = {"ACT-1", "ACT4-1"}, .following = {"ACT-1", "ACT4-1", "REFpb"}, .latency = V("nRRD")},
-                                      {.level = "rank", .preceding = {"ACT-1", "ACT4-1", "ACT16-1"}, .following = {"ACT16-1"}, .latency = V("nRRD")},
-                                      {.level = "rank", .preceding = {"ACT16-1"}, .following = {"ACT-1", "ACT4-1", "ACT16-1", "REFpb"}, .latency = V("nRRD")},
-                                      {.level = "rank", .preceding = {"ACT-1", "ACT4-1", "ACT16-1"}, .following = {"ACT16-1"}, .latency = V("nRC")},
-                                      {.level = "rank", .preceding = {"ACT16-1"}, .following = {"ACT-1", "ACT4-1", "ACT16-1", "REFpb"}, .latency = V("nRC")},
+                                      {.level = "rank", .preceding = {"ACT-1", "ACT4-1", "ACT8-1"}, .following = {"ACT8-1"}, .latency = V("nRRD")},
+                                      {.level = "rank", .preceding = {"ACT8-1"}, .following = {"ACT-1", "ACT4-1", "ACT8-1", "REFpb"}, .latency = V("nRRD")},
+                                      {.level = "rank", .preceding = {"ACT-1", "ACT4-1", "ACT8-1"}, .following = {"ACT8-1"}, .latency = V("nRC")},
+                                      {.level = "rank", .preceding = {"ACT8-1"}, .following = {"ACT-1", "ACT4-1", "ACT8-1", "REFpb"}, .latency = V("nRC")},
 
-                                      {.level = "rank", .preceding = {"ACT-1", "ACT4-1", "ACT16-1"}, .following = {"PREA"}, .latency = V("nRAS")},
-                                      {.level = "rank", .preceding = {"ACT16-1"}, .following = {"PRE", "PRE4"}, .latency = V("nRAS")},
+                                      {.level = "rank", .preceding = {"ACT-1", "ACT4-1", "ACT8-1"}, .following = {"PREA"}, .latency = V("nRAS")},
+                                      {.level = "rank", .preceding = {"ACT8-1"}, .following = {"PRE", "PRE4"}, .latency = V("nRAS")},
 
-                                      {.level = "rank", .preceding = {"PRE"}, .following = {"ACT16-1"}, .latency = V("nRPpb")},
-                                      {.level = "rank", .preceding = {"PRE4", "PREA"}, .following = {"ACT-1", "ACT4-1", "ACT16-1"}, .latency = V("nRPab")},
+                                      {.level = "rank", .preceding = {"PRE"}, .following = {"ACT8-1"}, .latency = V("nRPpb")},
+                                      {.level = "rank", .preceding = {"PRE4", "PREA"}, .following = {"ACT-1", "ACT4-1", "ACT8-1"}, .latency = V("nRPab")},
 
-                                      {.level = "rank", .preceding = {"ACT16-1"}, .following = {"RD", "RDA", "WR", "WRA"}, .latency = V("nRCD")},
-                                      {.level = "rank", .preceding = {"ACT16-1"}, .following = {"MAC"}, .latency = V("nRCDRDMAC")},
-                                      {.level = "rank", .preceding = {"ACT16-1"}, .following = {"RDCP"}, .latency = V("nRCDRDCP")},
-                                      {.level = "rank", .preceding = {"ACT16-1"}, .following = {"WRCP"}, .latency = V("nRCDWRCP")},
-                                      {.level = "rank", .preceding = {"ACT-1", "ACT4-1", "ACT16-1"}, .following = {"MAC16"}, .latency = V("nRCDRDMAC")},
-                                      {.level = "rank", .preceding = {"ACT-1", "ACT4-1", "ACT16-1"}, .following = {"AF16"}, .latency = V("nRCDRDAF")},
-                                      {.level = "rank", .preceding = {"ACT-1", "ACT4-1", "ACT16-1"}, .following = {"EWMUL16"}, .latency = V("nRCDEWMUL")},
-                                      {.level = "rank", .preceding = {"ACT-1", "ACT4-1", "ACT16-1"}, .following = {"WRA16"}, .latency = V("nRCD")},
+                                      {.level = "rank", .preceding = {"ACT8-1"}, .following = {"RD", "RDA", "WR", "WRA"}, .latency = V("nRCD")},
+                                      {.level = "rank", .preceding = {"ACT8-1"}, .following = {"MAC"}, .latency = V("nRCDRDMAC")},
+                                      {.level = "rank", .preceding = {"ACT8-1"}, .following = {"RDCP"}, .latency = V("nRCDRDCP")},
+                                      {.level = "rank", .preceding = {"ACT8-1"}, .following = {"WRCP"}, .latency = V("nRCDWRCP")},
+                                      {.level = "rank", .preceding = {"ACT-1", "ACT4-1", "ACT8-1"}, .following = {"MAC16"}, .latency = V("nRCDRDMAC")},
+                                      {.level = "rank", .preceding = {"ACT-1", "ACT4-1", "ACT8-1"}, .following = {"AF16"}, .latency = V("nRCDRDAF")},
+                                      {.level = "rank", .preceding = {"ACT-1", "ACT4-1", "ACT8-1"}, .following = {"EWMUL16"}, .latency = V("nRCDEWMUL")},
+                                      {.level = "rank", .preceding = {"ACT-1", "ACT4-1", "ACT8-1"}, .following = {"WRA16"}, .latency = V("nRCD")},
 
-                                      {.level = "rank", .preceding = {"RDA"}, .following = {"ACT16-1"}, .latency = V("nRTP") + V("nRPpb")},
-                                      {.level = "rank", .preceding = {"WRA"}, .following = {"ACT16-1"}, .latency = V("nCWL") + V("nBL") + V("nWR") + V("nRPpb")},
-                                      {.level = "rank", .preceding = {"WRA16"}, .following = {"ACT-1", "ACT4-1", "ACT16-1"}, .latency = V("nCWL") + V("nBL") + V("nWR") + V("nRPab")},
+                                      {.level = "rank", .preceding = {"RDA"}, .following = {"ACT8-1"}, .latency = V("nRTP") + V("nRPpb")},
+                                      {.level = "rank", .preceding = {"WRA"}, .following = {"ACT8-1"}, .latency = V("nCWL") + V("nBL") + V("nWR") + V("nRPpb")},
+                                      {.level = "rank", .preceding = {"WRA16"}, .following = {"ACT-1", "ACT4-1", "ACT8-1"}, .latency = V("nCWL") + V("nBL") + V("nWR") + V("nRPab")},
 
                                       /// RAS <-> REF
 
                                       {.level = "rank", .preceding = {"REFpb"}, .following = {"REFpb"}, .latency = V("nPBR2PBR")},
-                                      {.level = "rank", .preceding = {"ACT-1", "ACT4-1", "ACT16-1"}, .following = {"REFpb"}, .latency = V("nPBR2ACT")},
+                                      {.level = "rank", .preceding = {"ACT-1", "ACT4-1", "ACT8-1"}, .following = {"REFpb"}, .latency = V("nPBR2ACT")},
 
-                                      {.level = "rank", .preceding = {"ACT-1", "ACT4-1", "ACT16-1"}, .following = {"REFab"}, .latency = V("nRC")},
-                                      {.level = "rank", .preceding = {"ACT16-1"}, .following = {"REFpb"}, .latency = V("nRC")},
+                                      {.level = "rank", .preceding = {"ACT-1", "ACT4-1", "ACT8-1"}, .following = {"REFab"}, .latency = V("nRC")},
+                                      {.level = "rank", .preceding = {"ACT8-1"}, .following = {"REFpb"}, .latency = V("nRC")},
                                       {.level = "rank", .preceding = {"PRE"}, .following = {"REFab"}, .latency = V("nRPpb")},
                                       {.level = "rank", .preceding = {"PREA"}, .following = {"REFab", "REFpb"}, .latency = V("nRPab")},
                                       {.level = "rank", .preceding = {"PRE4"}, .following = {"REFab"}, .latency = V("nRPab")}, // there could be a new nRPbg
                                       {.level = "rank", .preceding = {"RDA"}, .following = {"REFab"}, .latency = V("nRPpb") + V("nRTP")},
                                       {.level = "rank", .preceding = {"WRA"}, .following = {"REFab"}, .latency = V("nCWL") + V("nBL") + V("nWR") + V("nRPpb")},
                                       {.level = "rank", .preceding = {"WRA16"}, .following = {"REFpb", "REFab"}, .latency = V("nCWL") + V("nBL") + V("nWR") + V("nRPab")},
-                                      {.level = "rank", .preceding = {"REFab"}, .following = {"REFab", "REFpb", "ACT-1", "ACT4-1", "ACT16-1"}, .latency = V("nRFCab")},
-                                      {.level = "rank", .preceding = {"REFpb"}, .following = {"ACT16-1"}, .latency = V("nRFCpb")},
+                                      {.level = "rank", .preceding = {"REFab"}, .following = {"REFab", "REFpb", "ACT-1", "ACT4-1", "ACT8-1"}, .latency = V("nRFCab")},
+                                      {.level = "rank", .preceding = {"REFpb"}, .following = {"ACT8-1"}, .latency = V("nRFCpb")},
 
-                                      {.level = "rank", .preceding = {"TMOD"}, .following = {"ACT-1", "ACT-2", "PRE", "PREA", "CASRD", "CASWR", "CASWRGB", "CASWRMAC16", "CASRDMAC16", "CASRDAF16", "CASWRA16", "RD", "WR", "RDA", "WRA", "REFab", "REFpb", "RFMab", "RFMpb", "ACT16-1", "ACT4-1", "ACT16-2", "ACT4-2", "PRE4", "MAC", "MAC16", "AF16", "EWMUL16", "RDCP", "WRCP", "WRGB", "RDMAC16", "RDAF16", "WRMAC16", "WRA16", "SYNC", "EOC"}, .latency = V("nMODCH")},
+                                      {.level = "rank", .preceding = {"TMOD"}, .following = {"ACT-1", "ACT-2", "PRE", "PREA", "CASRD", "CASWR", "CASWRGB", "CASWRMAC16", "CASRDMAC16", "CASRDAF16", "CASWRA16", "RD", "WR", "RDA", "WRA", "REFab", "REFpb", "RFMab", "RFMpb", "ACT8-1", "ACT4-1", "ACT8-2", "ACT4-2", "PRE4", "MAC", "MAC16", "AF16", "EWMUL16", "RDCP", "WRCP", "WRGB", "RDMAC16", "RDAF16", "WRMAC16", "WRA16", "SYNC", "EOC"}, .latency = V("nMODCH")},
 
                                       /****************************************************** Bank ******************************************************/
                                       /// CAS <-> RAS
@@ -771,7 +777,7 @@ private:
         // Rank Actions
         m_actions[m_levels["rank"]][m_commands["WRA16"]] = Lambdas::Action::Channel::PREab<LPDDR4>;
         m_actions[m_levels["rank"]][m_commands["PREA"]] = Lambdas::Action::Rank::PREab<LPDDR4>;
-        m_actions[m_levels["rank"]][m_commands["ACT16-1"]] = [](Node *node, int cmd, const AddrVec_t &addr_vec, Clk_t clk) {
+        m_actions[m_levels["rank"]][m_commands["ACT8-1"]] = [](Node *node, int cmd, const AddrVec_t &addr_vec, Clk_t clk) {
             int target_id = addr_vec[node->m_level + 3];
             for (auto bg : node->m_child_nodes) {
                 for (auto bank : bg->m_child_nodes) {
@@ -780,7 +786,7 @@ private:
                 }
             }
         };
-        m_actions[m_levels["channel"]][m_commands["ACT16-2"]] = Lambdas::Action::Channel::ACTab<LPDDR4>;
+        m_actions[m_levels["channel"]][m_commands["ACT8-2"]] = Lambdas::Action::Channel::ACTab<LPDDR4>;
 
         assert(m_timings["nCL"] == m_timing_vals("nCL"));
         assert(m_timings["nCWL"] == m_timing_vals("nCWL"));
@@ -960,9 +966,9 @@ private:
                if (any_open_diff)                                                                    \
                    return m_commands["PREA"];                                                        \
                if (any_closed)                                                                       \
-                   return m_commands["ACT16-1"];                                                     \
+                   return m_commands["ACT8-1"];                                                     \
                if (any_pre_opened)                                                                   \
-                   return m_commands["ACT16-2"];                                                     \
+                   return m_commands["ACT8-2"];                                                     \
                return cmd;                                                                           \
            }
 

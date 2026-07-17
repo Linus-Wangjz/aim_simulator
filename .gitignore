@@ -7,3 +7,4 @@ ramulator2
 *.result
 .cache
 output/
+__pycache__
