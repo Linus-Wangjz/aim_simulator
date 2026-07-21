@@ -288,6 +288,21 @@ def power_calculator(stat, PCIE_bits, Head, HiddenDim, Tokens, GQA, dram_power_i
 
         pim_commands = stat["MAC"] / all_bank_count
         pim_commands += stat["MAC8"]
+        pim_commands += (stat["EWMUL16"] + stat["EWMUL8"]) / 4.00
+        pim_cycle_ns = GIGA / PIM_FREQ
+
+        dq_commands = stat["RD"] + stat["WR"] + stat["RDA"] + stat["WRA"]
+        dq_commands += stat["WRGB"] + stat["RDMAC16"] + stat["RDAF16"] + stat["WRMAC16"] + stat["WRA16"]
+        dq_commands += stat["RDMAC8"] + stat["RDAF8"] + stat["WRMAC8"] + stat["WRA8"]
+
+        energy["ACT/PRE"] = dram_power["ACT"] * act_equiv * tRC / GIGA
+        energy["RD"] = dram_power["RD"] * rd_data_commands * tBL / GIGA
+        energy["WR"] = dram_power["WR"] * wr_data_commands * tBL / GIGA
+        energy["PIM"] = 1.5 * dram_power["RD"] * pim_commands * pim_cycle_ns / GIGA
+        energy["ACT_STBY"] = dram_power["ACT_STBY"] * CH_PER_DV * stat["active_latency"] / KILO
+        energy["PRE_STBY"] = dram_power["PRE_STBY"] * CH_PER_DV * stat["precharged_latency"] / KILO
+        energy["DQ"] = DQ_ENERGY * WORD_SIZE * dq_commands / GIGA
+        energy["PCIe"] = PCIE_bits * PCIE_ENERGY / GIGA
 
     elif timing_impl == "GDDR6":
         all_bank_count = 16.00
@@ -303,25 +318,23 @@ def power_calculator(stat, PCIE_bits, Head, HiddenDim, Tokens, GQA, dram_power_i
 
         pim_commands = stat["MAC"] / all_bank_count
         pim_commands += stat["MAC16"]
+        pim_commands += (stat["EWMUL16"] + stat["EWMUL8"]) / 4.00
+        pim_cycle_ns = GIGA / PIM_FREQ
+
+        dq_commands = stat["RD"] + stat["WR"] + stat["RDA"] + stat["WRA"]
+        dq_commands += stat["WRGB"] + stat["RDMAC16"] + stat["RDAF16"] + stat["WRMAC16"] + stat["WRA16"]
+        dq_commands += stat["RDMAC8"] + stat["RDAF8"] + stat["WRMAC8"] + stat["WRA8"]
+
+        energy["ACT/PRE"] = dram_power["ACT"] * act_equiv * tRC / GIGA
+        energy["RD"] = dram_power["RD"] * rd_data_commands * tBL / GIGA
+        energy["WR"] = dram_power["WR"] * wr_data_commands * tBL / GIGA
+        energy["PIM"] = 3 * dram_power["RD"] * pim_commands * pim_cycle_ns / GIGA
+        energy["ACT_STBY"] = dram_power["ACT_STBY"] * CH_PER_DV * stat["active_latency"] / KILO
+        energy["PRE_STBY"] = dram_power["PRE_STBY"] * CH_PER_DV * stat["precharged_latency"] / KILO
+        energy["DQ"] = DQ_ENERGY * WORD_SIZE * dq_commands / GIGA
+        energy["PCIe"] = PCIE_bits * PCIE_ENERGY / GIGA
     else:
         raise ValueError(f"Unknown DRAM impl '{timing_impl}'. Expected timing impl GDDR6 or LPDDR4")
-
-    pim_commands += (stat["EWMUL16"] + stat["EWMUL8"]) / 4.00
-    pim_cycle_ns = GIGA / PIM_FREQ
-
-    dq_commands = stat["RD"] + stat["WR"] + stat["RDA"] + stat["WRA"]
-    dq_commands += stat["WRGB"] + stat["RDMAC16"] + stat["RDAF16"] + stat["WRMAC16"] + stat["WRA16"]
-    dq_commands += stat["RDMAC8"] + stat["RDAF8"] + stat["WRMAC8"] + stat["WRA8"]
-
-    # TODO: should we use the tRC or tRCD?
-    energy["ACT/PRE"] = dram_power["ACT"] * act_equiv * tRC / GIGA
-    energy["RD"] = dram_power["RD"] * rd_data_commands * tBL / GIGA
-    energy["WR"] = dram_power["WR"] * wr_data_commands * tBL / GIGA
-    energy["PIM"] = 3 * dram_power["RD"] * pim_commands * pim_cycle_ns / GIGA
-    energy["ACT_STBY"] = dram_power["ACT_STBY"] * CH_PER_DV * stat["active_latency"] / KILO
-    energy["PRE_STBY"] = dram_power["PRE_STBY"] * CH_PER_DV * stat["precharged_latency"] / KILO
-    energy["DQ"] = DQ_ENERGY * WORD_SIZE * dq_commands / GIGA
-    energy["PCIe"] = PCIE_bits * PCIE_ENERGY / GIGA
 
     ISR_COUNT = stat["RD"] + stat["WR"] + stat["RDA"] + stat["WRA"]
     ISR_COUNT += stat["MAC"] + stat["MAC16"] + stat["MAC8"]

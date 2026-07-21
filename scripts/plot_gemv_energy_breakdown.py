@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Run GEMV traces and plot DRAM-only energy breakdowns.
+"""Run GEMV traces and plot energy breakdowns.
 
 The energy model is intentionally reused from cellar_power_calculator.py.  This
-script only keeps DRAM-side components: ACT/PRE, RD, WR, PIM, ACT_STBY, and
-PRE_STBY.  DQ, memory controller, global-buffer, and accelerator energy are not
-included in the plotted totals.
+script defaults to DRAM-only energy, but can also include trace-relevant
+system-side estimates such as DQ IO, controller/PHY, and PNM module energy.
 """
 
 from __future__ import annotations
@@ -12,6 +11,8 @@ from __future__ import annotations
 import argparse
 import csv
 import html
+import math
+import os
 import re
 import subprocess
 import tempfile
@@ -48,17 +49,38 @@ WORKLOADS = (
 )
 
 DRAM_ENERGY_COMPONENTS = ["ACT/PRE", "RD", "WR", "PIM", "ACT_STBY", "PRE_STBY"]
-DRAM_POWER_COLUMNS = {
-    "ACT/PRE": "ACT_PRE_W",
-    "RD": "RD_W",
-    "WR": "WR_W",
-    "PIM": "PIM_W",
-    "ACT_STBY": "ACT_STBY_W",
-    "PRE_STBY": "PRE_STBY_W",
+SYSTEM_COMPONENT_GROUPS = {
+    **{component: [component] for component in DRAM_ENERGY_COMPONENTS},
+    "DQ_IO": ["DQ"],
+    "CTRL_PHY": ["MEM_CTR"],
+    "PNM_STT": ["GB_STT", "SB_STT", "IB_STT", "RED_STT", "EXP_STT", "VEC_STT"],
+    "PNM_DYN": ["GB_RD", "GB_WR"],
+    "PNM_CTRL": ["DV_CTR"],
+    "PCIe": ["PCIe"],
+}
+CELLAR_LLM_OVERHEAD_GROUPS = {
+    # These are synthetic Cellar LLM-side estimates for RMSNorm/Softmax/RotEmbed.
+    # They are not trace-derived GEMV work, so they are opt-in for this script.
+    "PNM_LLM_DYN": ["SB_DYN", "IB_DYN", "RV_DYN", "RED_DYN", "EXP_DYN", "VEC_DYN"],
 }
 LPDDR4_DRAM_RE = re.compile(r"^LPDDR4_nCCD(\d+)$")
 LPDDR4X_DRAM_RE = re.compile(r"^LPDDR4X_nCCD(\d+)$")
 NCCD_RE = re.compile(r"^\s*nCCD:\s*(\d+)\s*$", re.MULTILINE)
+
+
+def energy_component_groups(scope: str, include_cellar_llm_overhead: bool = False) -> dict[str, list[str]]:
+    if scope == "dram":
+        return {component: [component] for component in DRAM_ENERGY_COMPONENTS}
+    if scope == "system":
+        groups = dict(SYSTEM_COMPONENT_GROUPS)
+        if include_cellar_llm_overhead:
+            groups.update(CELLAR_LLM_OVERHEAD_GROUPS)
+        return groups
+    raise ValueError(f"unknown energy scope: {scope}")
+
+
+def power_column(component: str) -> str:
+    return f"{component.replace('/', '_')}_W"
 
 
 def repo_root() -> Path:
@@ -82,11 +104,18 @@ def parse_nccd_values(raw: str) -> list[int]:
 
 
 def matplotlib_available() -> bool:
+    configure_matplotlib_cache()
     try:
         import matplotlib  # noqa: F401
     except ModuleNotFoundError:
         return False
     return True
+
+
+def configure_matplotlib_cache() -> None:
+    cache_dir = repo_root() / "output" / "matplotlib-cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    os.environ.setdefault("MPLCONFIGDIR", str(cache_dir))
 
 
 def write_lpddr4_yaml_with_nccd(base_yaml: Path, nccd: int, dst: Path) -> None:
@@ -184,14 +213,15 @@ def set_cellar_channel_count(ch_per_dv: int) -> None:
 def dram_energy_from_result(
     result: Path,
     hidden_dim: int,
+    pcie_bits: int,
     dram_power_impl: str | None = None,
 ) -> tuple[dict[str, float], dict[str, float]]:
     stat = cellar.command_processor(str(result))
-    # Non-DRAM calculator inputs are dummies here; only DRAM energy components
-    # are consumed below.
+    # Head/Tokens/GQA are placeholders for this GEMV script. By default the
+    # plotting scope does not include Cellar's synthetic LLM-side dynamic terms.
     energy, _latency = cellar.power_calculator(
         stat,
-        PCIE_bits=0,
+        PCIE_bits=pcie_bits,
         Head=1,
         HiddenDim=hidden_dim,
         Tokens=1,
@@ -208,29 +238,39 @@ def append_energy_row(
     nccd: int | None,
     energy: dict[str, float],
     stat: dict[str, float],
+    energy_scope: str,
+    groups: dict[str, list[str]],
+    pcie_bits: int,
     output: Path,
     trace: Path,
     root: Path,
 ) -> None:
     latency_ms = stat["latency"]
-    total_dram_mj = sum(energy[comp] for comp in DRAM_ENERGY_COMPONENTS)
+    component_energy = {
+        component: sum(energy[source] for source in sources)
+        for component, sources in groups.items()
+    }
+    total_mj = sum(component_energy.values())
     row = {
         "size": str(workload["size"]),
         "workload": str(workload["name"]),
         "dram": dram,
+        "energy_scope": energy_scope,
+        "device_scope": f"1 device ({int(cellar.CH_PER_DV)} channels)",
+        "pcie_bits": str(pcie_bits),
         "lpddr4_nccd": "" if nccd is None else str(nccd),
         "memory_system_cycles": f"{stat['cycles']:.0f}",
         "gemv_latency_ms": f"{latency_ms:.12g}",
         "pim_tccd_cycles": f"{stat['pim_tccd_cycles']:.0f}",
         "pim_tccd_ns": f"{stat['pim_tccd_cycles'] * cellar.GIGA / cellar.FREQ:.12g}",
-        "total_dram_mJ": f"{total_dram_mj:.12g}",
-        "total_dram_W": f"{total_dram_mj / latency_ms:.12g}",
+        "total_mJ": f"{total_mj:.12g}",
+        "total_W": f"{total_mj / latency_ms:.12g}",
         "output": display_path(output, root),
         "trace": display_path(trace, root),
     }
-    for comp in DRAM_ENERGY_COMPONENTS:
-        row[comp] = f"{energy[comp]:.12g}"
-        row[DRAM_POWER_COLUMNS[comp]] = f"{energy[comp] / latency_ms:.12g}"
+    for comp, value in component_energy.items():
+        row[comp] = f"{value:.12g}"
+        row[power_column(comp)] = f"{value / latency_ms:.12g}"
     rows.append(row)
 
 
@@ -239,6 +279,7 @@ def build_rows(args: argparse.Namespace) -> list[dict[str, str]]:
     out_dir = args.output_dir
     out_dir.mkdir(parents=True, exist_ok=True)
     set_cellar_channel_count(args.ch_per_dv)
+    groups = energy_component_groups(args.energy_scope, args.include_cellar_llm_overhead)
 
     rows: list[dict[str, str]] = []
     show_lpddr4_nccd = len(args.lpddr4_nccd_values) > 1
@@ -267,23 +308,27 @@ def build_rows(args: argparse.Namespace) -> list[dict[str, str]]:
                     print(f"[run] {label} {workload['name']}: {display_path(trace, root)}")
                     run_ramulator(args.ramulator, config, trace, output, root)
 
-                energy, stat = dram_energy_from_result(output, workload["size"])
-                append_energy_row(
-                    rows,
-                    workload,
-                    dram_name(dram, nccd, show_nccd=show_lpddr4_nccd),
-                    nccd,
-                    energy,
-                    stat,
-                    output,
-                    trace,
-                    root,
-                )
-
-                if dram == "lpddr4":
+                if dram == "gddr6":
+                    energy, stat = dram_energy_from_result(output, workload["size"], args.pcie_bits)
+                    append_energy_row(
+                        rows,
+                        workload,
+                        dram_name(dram, nccd, show_nccd=show_lpddr4_nccd),
+                        nccd,
+                        energy,
+                        stat,
+                        args.energy_scope,
+                        groups,
+                        args.pcie_bits,
+                        output,
+                        trace,
+                        root,
+                    )
+                else:
                     lpddr4x_energy, lpddr4x_stat = dram_energy_from_result(
                         output,
                         workload["size"],
+                        args.pcie_bits,
                         dram_power_impl="LPDDR4X",
                     )
                     append_energy_row(
@@ -293,6 +338,9 @@ def build_rows(args: argparse.Namespace) -> list[dict[str, str]]:
                         nccd,
                         lpddr4x_energy,
                         lpddr4x_stat,
+                        args.energy_scope,
+                        groups,
+                        args.pcie_bits,
                         output,
                         trace,
                         root,
@@ -301,20 +349,24 @@ def build_rows(args: argparse.Namespace) -> list[dict[str, str]]:
     return rows
 
 
-def write_csv(rows: list[dict[str, str]], csv_path: Path) -> None:
+def write_csv(rows: list[dict[str, str]], csv_path: Path, groups: dict[str, list[str]]) -> None:
+    components = list(groups)
     fieldnames = [
         "size",
         "workload",
         "dram",
+        "energy_scope",
+        "device_scope",
+        "pcie_bits",
         "lpddr4_nccd",
         "memory_system_cycles",
         "gemv_latency_ms",
         "pim_tccd_cycles",
         "pim_tccd_ns",
-        *DRAM_ENERGY_COMPONENTS,
-        "total_dram_mJ",
-        *DRAM_POWER_COLUMNS.values(),
-        "total_dram_W",
+        *components,
+        "total_mJ",
+        *(power_column(component) for component in components),
+        "total_W",
         "output",
         "trace",
     ]
@@ -377,6 +429,13 @@ def component_colors() -> dict[str, str]:
         "PIM": "#54A24B",
         "ACT_STBY": "#72B7B2",
         "PRE_STBY": "#B279A2",
+        "DQ_IO": "#F58518",
+        "CTRL_PHY": "#E45756",
+        "PNM_STT": "#72B7B2",
+        "PNM_DYN": "#54A24B",
+        "PNM_CTRL": "#B279A2",
+        "PNM_LLM_DYN": "#9D755D",
+        "PCIe": "#BAB0AC",
     }
 
 
@@ -384,37 +443,47 @@ def component_value(row: dict[str, str], comp: str, metric: str) -> float:
     if metric == "energy":
         return float(row[comp])
     if metric == "power":
-        return float(row[DRAM_POWER_COLUMNS[comp]])
+        return float(row[power_column(comp)])
     raise ValueError(f"unknown plot metric: {metric}")
 
 
 def total_value(row: dict[str, str], metric: str) -> float:
     if metric == "energy":
-        return float(row["total_dram_mJ"])
+        return float(row["total_mJ"])
     if metric == "power":
-        return float(row["total_dram_W"])
+        return float(row["total_W"])
     raise ValueError(f"unknown plot metric: {metric}")
 
 
-def metric_title(metric: str, lpddr4_nccd_values: list[int]) -> str:
+def metric_title(metric: str, lpddr4_nccd_values: list[int], energy_scope: str) -> str:
     nccd_text = ",".join(str(value) for value in lpddr4_nccd_values)
-    timing_text = f"LPDDR4 timing nCCD={nccd_text}"
+    timing_text = f"LPDDR4X power, LPDDR4 timing nCCD={nccd_text}"
+    scope_text = "DRAM" if energy_scope == "dram" else "System"
     if metric == "energy":
-        return f"GEMV DRAM Energy Breakdown: GDDR6 vs LPDDR4 vs LPDDR4X ({timing_text})"
+        return f"GEMV {scope_text} Energy Breakdown: GDDR6 vs LPDDR4X ({timing_text})"
     if metric == "power":
-        return f"GEMV Average DRAM Power Breakdown: GDDR6 vs LPDDR4 vs LPDDR4X ({timing_text})"
+        return f"GEMV Average {scope_text} Power Breakdown: GDDR6 vs LPDDR4X ({timing_text})"
     raise ValueError(f"unknown plot metric: {metric}")
 
 
-def metric_ylabel(metric: str) -> str:
+def metric_ylabel(metric: str, energy_scope: str) -> str:
+    scope_text = "DRAM" if energy_scope == "dram" else "system"
     if metric == "energy":
-        return "DRAM energy (mJ)"
+        return f"{scope_text} energy (mJ)"
     if metric == "power":
-        return "Average DRAM power (W)"
+        return f"Average {scope_text} power (W)"
     raise ValueError(f"unknown plot metric: {metric}")
 
 
-def write_stacked_plot(rows: list[dict[str, str]], plot_path: Path, lpddr4_nccd_values: list[int], metric: str) -> None:
+def write_stacked_plot(
+    rows: list[dict[str, str]],
+    plot_path: Path,
+    lpddr4_nccd_values: list[int],
+    metric: str,
+    energy_scope: str,
+    groups: dict[str, list[str]],
+) -> None:
+    configure_matplotlib_cache()
     import matplotlib
 
     matplotlib.use("Agg")
@@ -424,9 +493,13 @@ def write_stacked_plot(rows: list[dict[str, str]], plot_path: Path, lpddr4_nccd_
 
     ordered, x_positions, x_labels, group_positions, group_labels = plot_inputs(rows)
 
-    fig, ax = plt.subplots(figsize=(12.2, 5.9))
+    legend_cols = min(len(groups), 6 if len(groups) <= 6 else 4)
+    legend_rows = max(1, math.ceil(len(groups) / legend_cols))
+    axes_top = max(0.70, 0.86 - 0.045 * (legend_rows - 1))
+
+    fig, ax = plt.subplots(figsize=(12.2, 6.2 if legend_rows > 1 else 5.9))
     bottoms = [0.0] * len(ordered)
-    for comp in DRAM_ENERGY_COMPONENTS:
+    for comp in groups:
         values = [component_value(row, comp, metric) for row in ordered]
         ax.bar(
             x_positions,
@@ -440,28 +513,58 @@ def write_stacked_plot(rows: list[dict[str, str]], plot_path: Path, lpddr4_nccd_
         )
         bottoms = [base + value for base, value in zip(bottoms, values)]
 
-    ax.set_title(metric_title(metric, lpddr4_nccd_values))
-    ax.set_ylabel(metric_ylabel(metric))
+    fig.suptitle(metric_title(metric, lpddr4_nccd_values, energy_scope), y=0.975, fontsize=13, fontweight="semibold")
+    ax.set_ylabel(metric_ylabel(metric, energy_scope))
     style_grouped_axis(ax, x_positions, x_labels, group_positions, group_labels)
     ax.grid(axis="y", alpha=0.25)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
-    ax.legend(ncols=6, loc="upper center", bbox_to_anchor=(0.5, 1.13), frameon=False)
-    fig.tight_layout()
-    fig.subplots_adjust(bottom=0.20, top=0.86)
+    handles, labels = ax.get_legend_handles_labels()
+    fig.legend(
+        handles,
+        labels,
+        ncols=legend_cols,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 0.93),
+        frameon=False,
+        columnspacing=1.25,
+        handlelength=1.35,
+        handletextpad=0.45,
+        fontsize=9,
+    )
+    fig.subplots_adjust(bottom=0.20, top=axes_top)
     fig.savefig(plot_path, dpi=200)
     plt.close(fig)
 
 
-def write_energy_plot(rows: list[dict[str, str]], plot_path: Path, lpddr4_nccd_values: list[int]) -> None:
-    write_stacked_plot(rows, plot_path, lpddr4_nccd_values, "energy")
+def write_energy_plot(
+    rows: list[dict[str, str]],
+    plot_path: Path,
+    lpddr4_nccd_values: list[int],
+    energy_scope: str,
+    groups: dict[str, list[str]],
+) -> None:
+    write_stacked_plot(rows, plot_path, lpddr4_nccd_values, "energy", energy_scope, groups)
 
 
-def write_power_plot(rows: list[dict[str, str]], plot_path: Path, lpddr4_nccd_values: list[int]) -> None:
-    write_stacked_plot(rows, plot_path, lpddr4_nccd_values, "power")
+def write_power_plot(
+    rows: list[dict[str, str]],
+    plot_path: Path,
+    lpddr4_nccd_values: list[int],
+    energy_scope: str,
+    groups: dict[str, list[str]],
+) -> None:
+    write_stacked_plot(rows, plot_path, lpddr4_nccd_values, "power", energy_scope, groups)
 
 
-def write_stacked_svg(rows: list[dict[str, str]], plot_path: Path, lpddr4_nccd_values: list[int], metric: str) -> None:
+def write_stacked_svg(
+    rows: list[dict[str, str]],
+    plot_path: Path,
+    lpddr4_nccd_values: list[int],
+    metric: str,
+    energy_scope: str,
+    groups: dict[str, list[str]],
+) -> None:
     colors = component_colors()
 
     ordered = sorted(rows, key=lambda row: (int(row["size"]), dram_sort_key(row["dram"])))
@@ -506,16 +609,19 @@ def write_stacked_svg(rows: list[dict[str, str]], plot_path: Path, lpddr4_nccd_v
         ".legend{font-size:13px}",
         "</style>",
         f'<rect x="0" y="0" width="{width}" height="{height}" fill="white"/>',
-        f'<text class="title" x="{width / 2}" y="36" text-anchor="middle">{esc(metric_title(metric, lpddr4_nccd_values))}</text>',
-        f'<text class="axis" x="{-(margin_top + plot_height / 2)}" y="22" transform="rotate(-90)" text-anchor="middle">{esc(metric_ylabel(metric))}</text>',
+        f'<text class="title" x="{width / 2}" y="36" text-anchor="middle">{esc(metric_title(metric, lpddr4_nccd_values, energy_scope))}</text>',
+        f'<text class="axis" x="{-(margin_top + plot_height / 2)}" y="22" transform="rotate(-90)" text-anchor="middle">{esc(metric_ylabel(metric, energy_scope))}</text>',
     ]
 
     legend_x = margin_left
     legend_y = 64
-    for idx, comp in enumerate(DRAM_ENERGY_COMPONENTS):
-        x = legend_x + idx * 160
-        svg.append(f'<rect x="{x}" y="{legend_y - 11}" width="14" height="14" fill="{colors[comp]}"/>')
-        svg.append(f'<text class="legend" x="{x + 20}" y="{legend_y + 1}">{esc(comp)}</text>')
+    for idx, comp in enumerate(groups):
+        col = idx % 7
+        row = idx // 7
+        x = legend_x + col * 170
+        y = legend_y + row * 20
+        svg.append(f'<rect x="{x}" y="{y - 11}" width="14" height="14" fill="{colors[comp]}"/>')
+        svg.append(f'<text class="legend" x="{x + 20}" y="{y + 1}">{esc(comp)}</text>')
 
     tick_count = 5
     for tick in range(tick_count + 1):
@@ -537,7 +643,7 @@ def write_stacked_svg(rows: list[dict[str, str]], plot_path: Path, lpddr4_nccd_v
             row = rows_by_key[(size, dram)]
             x = sx(group_idx, dram_idx)
             bottom = 0.0
-            for comp in DRAM_ENERGY_COMPONENTS:
+            for comp in groups:
                 value = component_value(row, comp, metric)
                 y = sy(bottom + value)
                 h = max(value / y_max * plot_height, 0.0)
@@ -561,12 +667,24 @@ def write_stacked_svg(rows: list[dict[str, str]], plot_path: Path, lpddr4_nccd_v
     plot_path.write_text("\n".join(svg))
 
 
-def write_energy_svg(rows: list[dict[str, str]], plot_path: Path, lpddr4_nccd_values: list[int]) -> None:
-    write_stacked_svg(rows, plot_path, lpddr4_nccd_values, "energy")
+def write_energy_svg(
+    rows: list[dict[str, str]],
+    plot_path: Path,
+    lpddr4_nccd_values: list[int],
+    energy_scope: str,
+    groups: dict[str, list[str]],
+) -> None:
+    write_stacked_svg(rows, plot_path, lpddr4_nccd_values, "energy", energy_scope, groups)
 
 
-def write_power_svg(rows: list[dict[str, str]], plot_path: Path, lpddr4_nccd_values: list[int]) -> None:
-    write_stacked_svg(rows, plot_path, lpddr4_nccd_values, "power")
+def write_power_svg(
+    rows: list[dict[str, str]],
+    plot_path: Path,
+    lpddr4_nccd_values: list[int],
+    energy_scope: str,
+    groups: dict[str, list[str]],
+) -> None:
+    write_stacked_svg(rows, plot_path, lpddr4_nccd_values, "power", energy_scope, groups)
 
 
 def main() -> int:
@@ -576,8 +694,25 @@ def main() -> int:
     parser.add_argument("--lpddr4-yaml", type=Path, default=root / "test/example_LPDDR4.yaml")
     parser.add_argument("--gddr6-yaml", type=Path, default=root / "test/example_GDDR6.yaml")
     parser.add_argument("--output-dir", type=Path, default=root / "output/gemv_dram_energy_breakdown")
-    parser.add_argument("--nccd-values", default="6")
+    parser.add_argument("--nccd-values", default="2,6")
     parser.add_argument("--ch-per-dv", type=int, default=32)
+    parser.add_argument(
+        "--energy-scope",
+        choices=["dram", "system"],
+        default="dram",
+        help="dram keeps only ACT/RD/WR/PIM/standby DRAM terms; system also includes DQ IO, controller/PHY, and trace-relevant PNM terms.",
+    )
+    parser.add_argument(
+        "--pcie-bits",
+        type=int,
+        default=0,
+        help="Optional PCIe traffic bits to include in --energy-scope system. GEMV traces do not encode host PCIe traffic, so the default is 0.",
+    )
+    parser.add_argument(
+        "--include-cellar-llm-overhead",
+        action="store_true",
+        help="For --energy-scope system, also include Cellar's synthetic RMSNorm/Softmax/RotEmbed PNM dynamic estimates.",
+    )
     parser.add_argument("--reuse-existing", action="store_true", help="Reuse existing .result files instead of rerunning them.")
     parser.add_argument("--no-plot", action="store_true", help="Skip matplotlib plot generation.")
     args = parser.parse_args()
@@ -588,22 +723,23 @@ def main() -> int:
         raise FileNotFoundError(f"ramulator binary not found: {args.ramulator}")
 
     rows = build_rows(args)
-    csv_path = args.output_dir / "gemv_dram_energy_breakdown.csv"
-    write_csv(rows, csv_path)
+    groups = energy_component_groups(args.energy_scope, args.include_cellar_llm_overhead)
+    csv_path = args.output_dir / f"gemv_{args.energy_scope}_energy_breakdown.csv"
+    write_csv(rows, csv_path, groups)
     print(f"[csv] {display_path(csv_path, root)}")
 
     if not args.no_plot and has_matplotlib:
-        energy_plot_path = args.output_dir / "gemv_dram_energy_breakdown_mj.png"
-        power_plot_path = args.output_dir / "gemv_dram_power_breakdown_w.png"
-        write_energy_plot(rows, energy_plot_path, args.lpddr4_nccd_values)
-        write_power_plot(rows, power_plot_path, args.lpddr4_nccd_values)
+        energy_plot_path = args.output_dir / f"gemv_{args.energy_scope}_energy_breakdown_mj.png"
+        power_plot_path = args.output_dir / f"gemv_{args.energy_scope}_power_breakdown_w.png"
+        write_energy_plot(rows, energy_plot_path, args.lpddr4_nccd_values, args.energy_scope, groups)
+        write_power_plot(rows, power_plot_path, args.lpddr4_nccd_values, args.energy_scope, groups)
         print(f"[plot] {display_path(energy_plot_path, root)}")
         print(f"[plot] {display_path(power_plot_path, root)}")
     elif not args.no_plot:
-        energy_plot_path = args.output_dir / "gemv_dram_energy_breakdown_mj.svg"
-        power_plot_path = args.output_dir / "gemv_dram_power_breakdown_w.svg"
-        write_energy_svg(rows, energy_plot_path, args.lpddr4_nccd_values)
-        write_power_svg(rows, power_plot_path, args.lpddr4_nccd_values)
+        energy_plot_path = args.output_dir / f"gemv_{args.energy_scope}_energy_breakdown_mj.svg"
+        power_plot_path = args.output_dir / f"gemv_{args.energy_scope}_power_breakdown_w.svg"
+        write_energy_svg(rows, energy_plot_path, args.lpddr4_nccd_values, args.energy_scope, groups)
+        write_power_svg(rows, power_plot_path, args.lpddr4_nccd_values, args.energy_scope, groups)
         print(f"[plot] {display_path(energy_plot_path, root)} (SVG fallback; matplotlib is not installed)")
         print(f"[plot] {display_path(power_plot_path, root)} (SVG fallback; matplotlib is not installed)")
 
