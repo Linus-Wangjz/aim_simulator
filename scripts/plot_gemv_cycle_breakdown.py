@@ -49,7 +49,7 @@ CONSTRAINT_LABELS = [
     "nRFCab",
     "nRTW",
     "CAS sync",
-    "ACT all-bank split",
+    "ACT split",
     "Issue gap",
     "Other",
 ]
@@ -87,7 +87,7 @@ TRANSITION_CONSTRAINT_MAP = {
     ("CASWRGB", "WRGB"): "CAS sync",
     ("CASWRMAC8", "WRMAC8"): "CAS sync",
     ("CASRDMAC8", "RDMAC8"): "CAS sync",
-    ("ACT8-1", "ACT8-2"): "ACT all-bank split",
+    ("ACT8-1", "ACT8-2"): "ACT split",
     ("WRMAC16", "TMOD"): "Issue gap",
     ("WRMAC8", "TMOD"): "Issue gap",
     ("MAC16", "TMOD"): "Issue gap",
@@ -513,6 +513,11 @@ def plot_inputs(rows: list[dict[str, str]]) -> tuple[list[dict[str, str]], list[
     return ordered, x_positions, x_labels, group_positions, group_labels
 
 
+def add_group_dividers(ax, group_positions: list[float]) -> None:
+    for left_group, right_group in zip(group_positions, group_positions[1:]):
+        ax.axvline((left_group + right_group) / 2, color="#D8D8D8", linewidth=0.8, zorder=0)
+
+
 def style_grouped_axis(ax, x_positions: list[float], x_labels: list[str], group_positions: list[float], group_labels: list[str]) -> None:
     ax.set_xticks(x_positions)
     ax.set_xticklabels(x_labels)
@@ -520,7 +525,7 @@ def style_grouped_axis(ax, x_positions: list[float], x_labels: list[str], group_
     for group_x, group_label in zip(group_positions, group_labels):
         ax.text(
             group_x,
-            -0.13,
+            -0.22,
             group_label,
             ha="center",
             va="top",
@@ -528,19 +533,13 @@ def style_grouped_axis(ax, x_positions: list[float], x_labels: list[str], group_
             fontsize=10,
             fontweight="semibold",
         )
-    for left_group, right_group in zip(group_positions, group_positions[1:]):
-        ax.axvline((left_group + right_group) / 2, color="#D8D8D8", linewidth=0.8, zorder=0)
+    add_group_dividers(ax, group_positions)
     ax.set_xlabel("matrix size")
-    ax.xaxis.set_label_coords(0.5, -0.19)
+    ax.xaxis.set_label_coords(0.5, -0.32)
 
 
-def write_cycle_plot(rows: list[dict[str, str]], plot_path: Path, lpddr4_nccd_values: list[int]) -> None:
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    colors = {
+def component_colors() -> dict[str, str]:
+    return {
         "WR_GB": "#4C78A8",
         "WR_BIAS": "#F58518",
         "ACT_PRE": "#E45756",
@@ -550,68 +549,58 @@ def write_cycle_plot(rows: list[dict[str, str]], plot_path: Path, lpddr4_nccd_va
         "Other": "#BAB0AC",
     }
 
-    ordered, x_positions, x_labels, group_positions, group_labels = plot_inputs(rows)
 
-    fig, ax = plt.subplots(figsize=(12.2, 5.9))
-    bottoms = [0] * len(ordered)
-    for label in STACK_LABELS:
-        values = [int(row[label]) for row in ordered]
-        ax.bar(x_positions, values, bottom=bottoms, label=label, color=colors[label], width=0.46, edgecolor="white", linewidth=0.5)
-        bottoms = [base + value for base, value in zip(bottoms, values)]
-
-    nccd_text = ",".join(str(value) for value in lpddr4_nccd_values)
-    ax.set_title(f"GEMV Cycle Breakdown from Issued Commands: GDDR6 vs LPDDR4 nCCD={nccd_text}")
-    ax.set_ylabel("cycles")
-    style_grouped_axis(ax, x_positions, x_labels, group_positions, group_labels)
-    ax.grid(axis="y", alpha=0.25)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    ax.legend(ncols=7, loc="upper center", bbox_to_anchor=(0.5, 1.13), frameon=False)
-    fig.tight_layout()
-    fig.subplots_adjust(bottom=0.20, top=0.86)
-    fig.savefig(plot_path, dpi=200)
-    plt.close(fig)
-
-
-def write_percent_plot(rows: list[dict[str, str]], plot_path: Path, lpddr4_nccd_values: list[int]) -> None:
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    colors = {
-        "WR_GB": "#4C78A8",
-        "WR_BIAS": "#F58518",
-        "ACT_PRE": "#E45756",
-        "MAC_ABK": "#54A24B",
-        "RD_MAC": "#B279A2",
-        "TMOD": "#72B7B2",
-        "Other": "#BAB0AC",
-    }
-
-    ordered, x_positions, x_labels, group_positions, group_labels = plot_inputs(rows)
+def draw_stacked_bars(ax, ordered: list[dict[str, str]], x_positions: list[float], labels: list[str], colors: dict[str, str], *, percent: bool) -> None:
     totals = [max(int(row["memory_system_cycles"]), 1) for row in ordered]
-
-    fig, ax = plt.subplots(figsize=(12.2, 5.9))
     bottoms = [0.0] * len(ordered)
-    for label in STACK_LABELS:
-        values = [100.0 * int(row[label]) / total for row, total in zip(ordered, totals)]
+    for label in labels:
+        if percent:
+            values = [100.0 * int(row[label]) / total for row, total in zip(ordered, totals)]
+        else:
+            values = [int(row[label]) for row in ordered]
         ax.bar(x_positions, values, bottom=bottoms, label=label, color=colors[label], width=0.46, edgecolor="white", linewidth=0.5)
         bottoms = [base + value for base, value in zip(bottoms, values)]
 
-    nccd_text = ",".join(str(value) for value in lpddr4_nccd_values)
-    ax.set_title(f"GEMV Cycle Breakdown Percent from Issued Commands: GDDR6 vs LPDDR4 nCCD={nccd_text}")
-    ax.set_ylabel("share of memory_system_cycles (%)")
-    ax.set_ylim(0, 100)
-    style_grouped_axis(ax, x_positions, x_labels, group_positions, group_labels)
+
+def style_panel(ax) -> None:
     ax.grid(axis="y", alpha=0.25)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
-    ax.legend(ncols=7, loc="upper center", bbox_to_anchor=(0.5, 1.13), frameon=False)
+
+
+def write_cycle_combined_plot(rows: list[dict[str, str]], plot_path: Path, lpddr4_nccd_values: list[int]) -> None:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    colors = component_colors()
+    ordered, x_positions, x_labels, group_positions, group_labels = plot_inputs(rows)
+
+    nccd_text = ",".join(str(value) for value in lpddr4_nccd_values)
+    fig, (ax_abs, ax_pct) = plt.subplots(2, 1, figsize=(12.8, 8.7), sharex=True, gridspec_kw={"height_ratios": [1.35, 1.0]})
+
+    draw_stacked_bars(ax_abs, ordered, x_positions, STACK_LABELS, colors, percent=False)
+    ax_abs.set_ylabel("cycles")
+    ax_abs.set_title("Absolute cycles", loc="left", fontsize=11, fontweight="semibold")
+    add_group_dividers(ax_abs, group_positions)
+    style_panel(ax_abs)
+
+    draw_stacked_bars(ax_pct, ordered, x_positions, STACK_LABELS, colors, percent=True)
+    ax_pct.set_ylabel("share of memory_system_cycles (%)")
+    ax_pct.set_ylim(0, 100)
+    ax_pct.set_title("Percentage", loc="left", fontsize=11, fontweight="semibold")
+    style_grouped_axis(ax_pct, x_positions, x_labels, group_positions, group_labels)
+    style_panel(ax_pct)
+
+    handles, labels = ax_abs.get_legend_handles_labels()
+    fig.suptitle(f"GEMV Cycle Breakdown from Issued Commands: GDDR6 vs LPDDR4 nCCD={nccd_text}", y=0.985)
+    fig.legend(handles, labels, ncols=7, loc="upper center", bbox_to_anchor=(0.5, 0.945), frameon=False)
     fig.tight_layout()
-    fig.subplots_adjust(bottom=0.20, top=0.86)
+    fig.subplots_adjust(bottom=0.18, top=0.88, hspace=0.20)
     fig.savefig(plot_path, dpi=200)
     plt.close(fig)
+
 
 
 def constraint_colors() -> dict[str, str]:
@@ -624,10 +613,44 @@ def constraint_colors() -> dict[str, str]:
         "nRFCab": "#B279A2",
         "nRTW": "#FF9DA6",
         "CAS sync": "#9D755D",
-        "ACT all-bank split": "#8CD17D",
+        "ACT split": "#8CD17D",
         "Issue gap": "#D4A6C8",
         "Other": "#BAB0AC",
     }
+
+
+def write_constraint_combined_plot(rows: list[dict[str, str]], plot_path: Path, lpddr4_nccd_values: list[int]) -> None:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    colors = constraint_colors()
+    ordered, x_positions, x_labels, group_positions, group_labels = plot_inputs(rows)
+
+    nccd_text = ",".join(str(value) for value in lpddr4_nccd_values)
+    fig, (ax_abs, ax_pct) = plt.subplots(2, 1, figsize=(13.8, 9.4), sharex=True, gridspec_kw={"height_ratios": [1.35, 1.0]})
+
+    draw_stacked_bars(ax_abs, ordered, x_positions, CONSTRAINT_LABELS, colors, percent=False)
+    ax_abs.set_ylabel("cycles")
+    ax_abs.set_title("Absolute cycles", loc="left", fontsize=11, fontweight="semibold")
+    add_group_dividers(ax_abs, group_positions)
+    style_panel(ax_abs)
+
+    draw_stacked_bars(ax_pct, ordered, x_positions, CONSTRAINT_LABELS, colors, percent=True)
+    ax_pct.set_ylabel("share of memory_system_cycles (%)")
+    ax_pct.set_ylim(0, 100)
+    ax_pct.set_title("Percentage", loc="left", fontsize=11, fontweight="semibold")
+    style_grouped_axis(ax_pct, x_positions, x_labels, group_positions, group_labels)
+    style_panel(ax_pct)
+
+    handles, labels = ax_abs.get_legend_handles_labels()
+    fig.suptitle(f"GEMV Timing-Constraint Attribution: GDDR6 vs LPDDR4 nCCD={nccd_text}", y=0.985)
+    fig.legend(handles, labels, ncols=6, loc="upper center", bbox_to_anchor=(0.5, 0.945), frameon=False)
+    fig.tight_layout()
+    fig.subplots_adjust(bottom=0.18, top=0.83, hspace=0.20)
+    fig.savefig(plot_path, dpi=200)
+    plt.close(fig)
 
 
 def write_constraint_plot(rows: list[dict[str, str]], plot_path: Path, lpddr4_nccd_values: list[int]) -> None:
@@ -699,7 +722,7 @@ def main() -> int:
     parser.add_argument("--ramulator", type=Path, default=root / "build/ramulator2")
     parser.add_argument("--lpddr4-yaml", type=Path, default=root / "test/example_LPDDR4.yaml")
     parser.add_argument("--gddr6-yaml", type=Path, default=root / "test/example_GDDR6.yaml")
-    parser.add_argument("--lpddr4-nccd-values", default="2,4,6,8", help="Comma-separated LPDDR4 nCCD values to sweep.")
+    parser.add_argument("--lpddr4-nccd-values", default="2,6", help="Comma-separated LPDDR4 nCCD values to sweep.")
     parser.add_argument("--lpddr4-nccd", type=int, dest="lpddr4_nccd_single", help="Run only one LPDDR4 nCCD value.")
     parser.add_argument("--output-dir", type=Path, default=root / "output/gemv_cycle_breakdown")
     parser.add_argument("--reuse-existing", action="store_true", help="Parse existing result files instead of rerunning simulations.")
@@ -732,18 +755,12 @@ def main() -> int:
     print(f"Wrote {constraint_map_csv_path}")
 
     if not args.no_plot:
-        cycle_plot_path = args.output_dir / "gemv_cycle_breakdown_cycles.png"
-        percent_plot_path = args.output_dir / "gemv_cycle_breakdown_percent.png"
-        constraint_plot_path = args.output_dir / "gemv_cycle_breakdown_constraints.png"
-        constraint_percent_plot_path = args.output_dir / "gemv_cycle_breakdown_constraints_percent.png"
-        write_cycle_plot(rows, cycle_plot_path, args.lpddr4_nccd_values)
-        write_percent_plot(rows, percent_plot_path, args.lpddr4_nccd_values)
-        write_constraint_plot(constraint_rows, constraint_plot_path, args.lpddr4_nccd_values)
-        write_constraint_percent_plot(constraint_rows, constraint_percent_plot_path, args.lpddr4_nccd_values)
+        cycle_plot_path = args.output_dir / "gemv_cycle_breakdown_cycles_and_percent.png"
+        constraint_plot_path = args.output_dir / "gemv_cycle_breakdown_constraints_and_percent.png"
+        write_cycle_combined_plot(rows, cycle_plot_path, args.lpddr4_nccd_values)
+        write_constraint_combined_plot(constraint_rows, constraint_plot_path, args.lpddr4_nccd_values)
         print(f"Wrote {cycle_plot_path}")
-        print(f"Wrote {percent_plot_path}")
         print(f"Wrote {constraint_plot_path}")
-        print(f"Wrote {constraint_percent_plot_path}")
     return 0
 
 
