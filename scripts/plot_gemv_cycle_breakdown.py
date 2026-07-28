@@ -5,227 +5,39 @@ from __future__ import annotations
 
 import argparse
 import csv
-import re
-import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
-
-WORKLOADS = (
-    {
-        "size": 256,
-        "name": "gemv_256x256",
-        "gddr6_trace": "test/gemv_256x256.trace",
-        "lpddr4_trace": "test/gemv_256x256.trace",
-    },
-    {
-        "size": 512,
-        "name": "gemv_512x512",
-        "gddr6_trace": "test/gemv_512x512_gddr6.trace",
-        "lpddr4_trace": "test/gemv_512x512_lpddr4.trace",
-    },
-    {
-        "size": 1024,
-        "name": "gemv_1024x1024",
-        "gddr6_trace": "test/gemv_1024x1024_gddr6.trace",
-        "lpddr4_trace": "test/gemv_1024x1024_lpddr4.trace",
-    },
-    {
-        "size": 2048,
-        "name": "gemv_2048x2048_gpr_psum",
-        "gddr6_trace": "test/gemv_2048x2048_gpr_psum_gddr6.trace",
-        "lpddr4_trace": "test/gemv_2048x2048_gpr_psum_lpddr4.trace",
-    },
+from aim_analysis.commands import (
+    CONSTRAINT_LABELS,
+    STACK_LABELS,
+    TRANSITION_CONSTRAINT_MAP,
+    command_component,
+    transition_constraint,
 )
-
-STACK_LABELS = ["WR_GB", "WR_BIAS", "ACT_PRE", "MAC_ABK", "RD_MAC", "TMOD", "Other"]
-CONSTRAINT_LABELS = [
-    "nMODCH",
-    "nCCD/nCCDS",
-    "nCCD/nBL",
-    "nRCDRDMAC",
-    "nRP/nRPab",
-    "nRFCab",
-    "nRTW",
-    "CAS sync",
-    "ACT split",
-    "Issue gap",
-    "Other",
-]
-
-TRANSITION_CONSTRAINT_MAP = {
-    ("TMOD", "WRGB"): "nMODCH",
-    ("TMOD", "CASWRGB"): "nMODCH",
-    ("TMOD", "CASWRMAC8"): "nMODCH",
-    ("TMOD", "CASRDMAC8"): "nMODCH",
-    ("TMOD", "RDMAC16"): "nMODCH",
-    ("TMOD", "RDMAC8"): "nMODCH",
-    ("TMOD", "ACT16"): "nMODCH",
-    ("TMOD", "ACT8-1"): "nMODCH",
-    ("TMOD", "PREA"): "nMODCH",
-    ("MAC16", "MAC16"): "nCCD/nCCDS",
-    ("MAC8", "MAC8"): "nCCD/nCCDS",
-    ("WRGB", "WRGB"): "nCCD/nBL",
-    ("WRGB", "WRMAC16"): "nCCD/nBL",
-    ("WRGB", "WRMAC8"): "nCCD/nBL",
-    ("WRGB", "CASWRGB"): "nCCD/nBL",
-    ("WRGB", "CASWRMAC8"): "nCCD/nBL",
-    ("ACT16", "MAC16"): "nRCDRDMAC",
-    ("ACT8-2", "MAC8"): "nRCDRDMAC",
-    ("PREA", "ACT16"): "nRP/nRPab",
-    ("PREA", "ACT8-1"): "nRP/nRPab",
-    ("PREA", "REFab"): "nRP/nRPab",
-    ("REFab", "ACT8-1"): "nRFCab",
-    ("RDMAC16", "WRGB"): "nRTW",
-    ("RDMAC16", "CASWRGB"): "nRTW",
-    ("RDMAC16", "WRMAC16"): "nRTW",
-    ("RDMAC8", "WRGB"): "nRTW",
-    ("RDMAC8", "CASWRGB"): "nRTW",
-    ("RDMAC8", "WRMAC8"): "nRTW",
-    ("RDMAC8", "CASWRMAC8"): "nRTW",
-    ("CASWRGB", "WRGB"): "CAS sync",
-    ("CASWRMAC8", "WRMAC8"): "CAS sync",
-    ("CASRDMAC8", "RDMAC8"): "CAS sync",
-    ("ACT8-1", "ACT8-2"): "ACT split",
-    ("WRMAC16", "TMOD"): "Issue gap",
-    ("WRMAC8", "TMOD"): "Issue gap",
-    ("MAC16", "TMOD"): "Issue gap",
-    ("MAC8", "TMOD"): "Issue gap",
-    ("WRGB", "TMOD"): "Issue gap",
-    ("REFab", "TMOD"): "Issue gap",
-}
-
-COMMAND_TRACE_RE = re.compile(r"^\s*(\d+)\s*,\s*([^,]+)\s*,")
-CHANNEL_TRACE_RE = re.compile(r"\.ch(\d+)$")
-LPDDR4_DRAM_RE = re.compile(r"^LPDDR4_nCCD(\d+)$")
-
-MEM_CYCLES_RE = re.compile(r"memory_system_cycles:\s+(\d+)")
-NCCD_RE = re.compile(r"^\s*nCCD:\s*(\d+)\s*$", re.MULTILINE)
-
-
-def repo_root() -> Path:
-    return Path(__file__).resolve().parents[1]
-
-
-def display_path(path: Path, root: Path) -> str:
-    try:
-        return str(path.resolve().relative_to(root))
-    except ValueError:
-        return str(path)
-
+from aim_analysis.ramulator import (
+    GemvRamulatorRunner,
+    RamulatorArtifactStore,
+    command_trace_files,
+    display_path,
+    dram_label,
+    dram_name,
+    dram_sort_key,
+    parse_command_trace,
+    parse_nccd_values,
+    read_result_stats,
+    repo_root,
+    result_cycles,
+)
+from aim_analysis.runtime import configure_matplotlib_cache
+from aim_analysis.workloads import GEMV_WORKLOADS
 
 def ensure_matplotlib_available() -> None:
+    configure_matplotlib_cache()
     try:
         import matplotlib  # noqa: F401
     except ModuleNotFoundError as exc:
         raise RuntimeError("matplotlib is not installed. Rerun with --no-plot to only generate CSV/results.") from exc
-
-
-def parse_nccd_values(values: str) -> list[int]:
-    parsed: list[int] = []
-    for value in values.split(","):
-        value = value.strip()
-        if not value:
-            continue
-        nccd = int(value)
-        if nccd not in parsed:
-            parsed.append(nccd)
-    if not parsed:
-        raise ValueError("At least one LPDDR4 nCCD value is required")
-    return parsed
-
-
-def write_yaml_with_trace_recorder(base_yaml: Path, dst: Path, trace_prefix: Path, nccd: int | None = None) -> None:
-    lines = base_yaml.read_text().splitlines(keepends=True)
-    output: list[str] = []
-    inserted_nccd = nccd is None
-    inserted_plugin = False
-    for line in lines:
-        stripped = line.strip()
-        if nccd is not None and stripped.startswith("nCCD:"):
-            continue
-        output.append(line)
-        if not inserted_nccd and "preset:" in stripped and "LPDDR4_AiM_timing" in stripped:
-            indent = re.match(r"^(\s*)", line).group(1)
-            output.append(f"{indent}nCCD: {nccd}\n")
-            inserted_nccd = True
-        if not inserted_plugin and stripped == "plugins:":
-            indent = re.match(r"^(\s*)", line).group(1)
-            output.append(f"{indent}  - ControllerPlugin:\n")
-            output.append(f"{indent}      impl: TraceRecorder\n")
-            output.append(f"{indent}      path: {trace_prefix}\n")
-            inserted_plugin = True
-
-    if not inserted_nccd:
-        raise RuntimeError(f"Could not find LPDDR4_AiM_timing preset in {base_yaml}")
-    if not inserted_plugin:
-        raise RuntimeError(f"Could not find Controller plugins block in {base_yaml}")
-
-    dst.write_text("".join(output))
-    match = NCCD_RE.search(dst.read_text())
-    if nccd is not None and (not match or int(match.group(1)) != nccd):
-        raise RuntimeError(f"nCCD override verification failed for {dst}")
-
-
-def run_ramulator(ramulator: Path, config: Path, trace: Path, output: Path, root: Path) -> None:
-    output.parent.mkdir(parents=True, exist_ok=True)
-    cmd = [str(ramulator), "-f", str(config), "-t", str(trace)]
-    with output.open("w") as fh:
-        proc = subprocess.run(cmd, cwd=root, stdout=fh, stderr=subprocess.STDOUT)
-    if proc.returncode != 0:
-        raise RuntimeError(f"Command failed ({proc.returncode}): {' '.join(cmd)}\nSee {output}")
-
-
-def normalize_command(command: str) -> str:
-    return command
-
-
-def command_component(command: str) -> str:
-    command = normalize_command(command)
-    if command in {"CASWRGB", "WRGB"}:
-        return "WR_GB"
-    if command in {"WRMAC16", "CASWRMAC8", "WRMAC8"}:
-        return "WR_BIAS"
-    if command in {"RDMAC16", "CASRDMAC8", "RDMAC8"}:
-        return "RD_MAC"
-    if command in {"MAC", "MAC16", "MAC8"}:
-        return "MAC_ABK"
-    if command == "TMOD":
-        return "TMOD"
-    if command.startswith("ACT") or command.startswith("PRE"):
-        return "ACT_PRE"
-    return "Other"
-
-
-def transition_constraint(transition: str) -> str:
-    try:
-        preceding, following = transition.split("->", 1)
-    except ValueError:
-        return "Other"
-    preceding = normalize_command(preceding)
-    following = normalize_command(following)
-    return TRANSITION_CONSTRAINT_MAP.get((preceding, following), "Other")
-
-
-def parse_command_trace(path: Path) -> list[tuple[int, str]]:
-    issued: list[tuple[int, str]] = []
-    for line in path.read_text().splitlines():
-        match = COMMAND_TRACE_RE.match(line)
-        if not match:
-            continue
-        issued.append((int(match.group(1)), match.group(2).strip()))
-    if not issued:
-        raise RuntimeError(f"No issued commands found in command trace {path}")
-    return issued
-
-
-def command_trace_files(trace_prefix: Path) -> list[Path]:
-    def channel_id(path: Path) -> int:
-        match = CHANNEL_TRACE_RE.search(path.name)
-        return int(match.group(1)) if match else -1
-
-    return sorted(trace_prefix.parent.glob(f"{trace_prefix.name}.ch*"), key=channel_id)
 
 
 def select_critical_command_trace(trace_prefix: Path) -> Path:
@@ -233,9 +45,9 @@ def select_critical_command_trace(trace_prefix: Path) -> Path:
     for path in command_trace_files(trace_prefix):
         try:
             issued = parse_command_trace(path)
-        except RuntimeError:
+        except ValueError:
             continue
-        candidates.append((issued[-1][0], len(issued), path))
+        candidates.append((issued[-1].clock, len(issued), path))
 
     if not candidates:
         raise RuntimeError(f"No issued commands found for command trace prefix {trace_prefix}")
@@ -243,25 +55,20 @@ def select_critical_command_trace(trace_prefix: Path) -> Path:
 
 
 def parse_result(result_path: Path, command_trace_path: Path) -> tuple[dict[str, int], list[dict[str, str]]]:
-    text = result_path.read_text()
-    mem_match = MEM_CYCLES_RE.search(text)
-    if not mem_match:
-        raise RuntimeError(f"No memory_system_cycles entry found in {result_path}")
-
-    stats = {"memory_system_cycles": int(mem_match.group(1))}
+    stats = {"memory_system_cycles": result_cycles(read_result_stats(result_path))}
     for label in STACK_LABELS:
         stats[label] = 0
 
     issued = parse_command_trace(command_trace_path)
     stats["issued_commands"] = len(issued)
     transitions: dict[str, dict[str, str | int]] = {}
-    for (prev_clk, _prev_cmd), (curr_clk, curr_cmd) in zip(issued, issued[1:]):
-        delta = curr_clk - prev_clk
+    for previous, current in zip(issued, issued[1:]):
+        delta = current.clock - previous.clock
         if delta < 0:
             raise RuntimeError(f"Command trace is not monotonic: {command_trace_path}")
-        stats[command_component(curr_cmd)] += delta
+        stats[command_component(current.command)] += delta
 
-        transition = f"{_prev_cmd}->{curr_cmd}"
+        transition = f"{previous.command}->{current.command}"
         item = transitions.setdefault(transition, {"transition": transition, "count": 0, "cycles": 0})
         item["count"] = int(item["count"]) + 1
         item["cycles"] = int(item["cycles"]) + delta
@@ -272,7 +79,10 @@ def parse_result(result_path: Path, command_trace_path: Path) -> tuple[dict[str,
     transition_rows = [
         {
             "transition": str(item["transition"]),
-            "constraint": transition_constraint(str(item["transition"])),
+            "constraint": transition_constraint(
+                str(item["transition"]).split("->", 1)[0],
+                str(item["transition"]).split("->", 1)[1],
+            ),
             "count": str(item["count"]),
             "cycles": str(item["cycles"]),
         }
@@ -281,94 +91,57 @@ def parse_result(result_path: Path, command_trace_path: Path) -> tuple[dict[str,
     return stats, transition_rows
 
 
-def result_name(workload_name: str, dram: str, lpddr4_nccd: int | None = None) -> str:
-    if dram == "lpddr4":
-        if lpddr4_nccd is None:
-            raise ValueError("LPDDR4 result names require an nCCD value")
-        return f"output_{workload_name}_lpddr4_nCCD{lpddr4_nccd}.result"
-    return f"output_{workload_name}_gddr6.result"
-
-
-def dram_label(dram: str) -> str:
-    match = LPDDR4_DRAM_RE.match(dram)
-    if match:
-        return f"LP4\nn{match.group(1)}"
-    return dram
-
-
-def dram_sort_key(dram: str) -> tuple[int, int]:
-    match = LPDDR4_DRAM_RE.match(dram)
-    if dram == "GDDR6":
-        return (0, 0)
-    if match:
-        return (1, int(match.group(1)))
-    return (2, 0)
-
-
 def build_rows(args: argparse.Namespace) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
     root = repo_root()
-    out_dir = args.output_dir
-    out_dir.mkdir(parents=True, exist_ok=True)
-    trace_dir = out_dir / "command_traces"
-    trace_dir.mkdir(parents=True, exist_ok=True)
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    runner = GemvRamulatorRunner(
+        root,
+        args.ramulator,
+        args.gddr6_yaml,
+        args.lpddr4_yaml,
+        RamulatorArtifactStore(args.ramulator_output_dir),
+        args.reuse_existing,
+    )
     rows: list[dict[str, str]] = []
     transition_rows: list[dict[str, str]] = []
 
-    with tempfile.TemporaryDirectory(prefix="lpddr4_nccd_", dir=root / "output") as tmp:
-        tmp_dir = Path(tmp)
+    for workload in GEMV_WORKLOADS:
+        runs: list[tuple[str, int | None]] = [("gddr6", None)]
+        runs.extend(("lpddr4", nccd) for nccd in args.lpddr4_nccd_values)
 
-        for workload in WORKLOADS:
-            runs: list[tuple[str, int | None]] = [("gddr6", None)]
-            runs.extend(("lpddr4", nccd) for nccd in args.lpddr4_nccd_values)
+        for dram, nccd in runs:
+            artifacts = runner.ensure(workload, dram, nccd)
+            command_trace = select_critical_command_trace(artifacts.command_trace_prefix)
+            stats, transitions = parse_result(artifacts.result, command_trace)
+            memory_name = dram_name(dram, nccd)
+            row = {
+                "size": str(workload.size),
+                "workload": workload.name,
+                "dram": memory_name,
+                "lpddr4_nccd": "" if nccd is None else str(nccd),
+                "memory_system_cycles": str(stats["memory_system_cycles"]),
+                "issued_commands": str(stats["issued_commands"]),
+                "component_sum": str(stats["component_sum"]),
+                "Other": str(stats["Other"]),
+                "output": display_path(artifacts.result, root),
+                "command_trace": display_path(command_trace, root),
+                "trace_channel": command_trace.name.rsplit(".ch", 1)[-1],
+            }
+            for label in STACK_LABELS:
+                row[label] = str(stats[label])
+            rows.append(row)
 
-            for dram, nccd in runs:
-                trace = root / workload[f"{dram}_trace"]
-                command_trace_prefix = trace_dir / result_name(workload["name"], dram, nccd).replace(".result", ".cmd")
-                config_suffix = dram if nccd is None else f"{dram}_nCCD{nccd}"
-                config = tmp_dir / f"{workload['name']}_{config_suffix}.yaml"
-                if dram == "gddr6":
-                    write_yaml_with_trace_recorder(args.gddr6_yaml, config, command_trace_prefix)
-                else:
-                    write_yaml_with_trace_recorder(args.lpddr4_yaml, config, command_trace_prefix, nccd)
-                output = out_dir / result_name(workload["name"], dram, nccd)
-                if args.reuse_existing and output.exists() and command_trace_files(command_trace_prefix):
-                    print(f"[reuse] {display_path(output, root)}")
-                else:
-                    label = "GDDR6" if dram == "gddr6" else f"LPDDR4 nCCD={nccd}"
-                    print(f"[run] {label} {workload['name']}: {display_path(trace, root)}")
-                    run_ramulator(args.ramulator, config, trace, output, root)
-
-                command_trace = select_critical_command_trace(command_trace_prefix)
-                stats, transitions = parse_result(output, command_trace)
-                dram_name = "GDDR6" if dram == "gddr6" else f"LPDDR4_nCCD{nccd}"
-                row = {
-                    "size": str(workload["size"]),
-                    "workload": workload["name"],
-                    "dram": dram_name,
-                    "lpddr4_nccd": "" if nccd is None else str(nccd),
-                    "memory_system_cycles": str(stats["memory_system_cycles"]),
-                    "issued_commands": str(stats["issued_commands"]),
-                    "component_sum": str(stats["component_sum"]),
-                    "Other": str(stats["Other"]),
-                    "output": display_path(output, root),
-                    "command_trace": display_path(command_trace, root),
-                    "trace_channel": command_trace.name.rsplit(".ch", 1)[-1],
-                }
-                for label in STACK_LABELS:
-                    row[label] = str(stats[label])
-                rows.append(row)
-
-                for transition in transitions:
-                    transition_rows.append(
-                        {
-                            "size": str(workload["size"]),
-                            "workload": workload["name"],
-                            "dram": dram_name,
-                            "lpddr4_nccd": "" if nccd is None else str(nccd),
-                            "trace_channel": command_trace.name.rsplit(".ch", 1)[-1],
-                            **transition,
-                        }
-                    )
+            for transition in transitions:
+                transition_rows.append(
+                    {
+                        "size": str(workload.size),
+                        "workload": workload.name,
+                        "dram": memory_name,
+                        "lpddr4_nccd": "" if nccd is None else str(nccd),
+                        "trace_channel": command_trace.name.rsplit(".ch", 1)[-1],
+                        **transition,
+                    }
+                )
 
     return rows, transition_rows
 
@@ -569,6 +342,7 @@ def style_panel(ax) -> None:
 
 
 def write_cycle_combined_plot(rows: list[dict[str, str]], plot_path: Path, lpddr4_nccd_values: list[int]) -> None:
+    configure_matplotlib_cache()
     import matplotlib
 
     matplotlib.use("Agg")
@@ -620,6 +394,7 @@ def constraint_colors() -> dict[str, str]:
 
 
 def write_constraint_combined_plot(rows: list[dict[str, str]], plot_path: Path, lpddr4_nccd_values: list[int]) -> None:
+    configure_matplotlib_cache()
     import matplotlib
 
     matplotlib.use("Agg")
@@ -725,7 +500,17 @@ def main() -> int:
     parser.add_argument("--lpddr4-nccd-values", default="2,6", help="Comma-separated LPDDR4 nCCD values to sweep.")
     parser.add_argument("--lpddr4-nccd", type=int, dest="lpddr4_nccd_single", help="Run only one LPDDR4 nCCD value.")
     parser.add_argument("--output-dir", type=Path, default=root / "output/gemv_cycle_breakdown")
-    parser.add_argument("--reuse-existing", action="store_true", help="Parse existing result files instead of rerunning simulations.")
+    parser.add_argument(
+        "--ramulator-output-dir",
+        type=Path,
+        default=root / "output/ramulator",
+        help="Shared raw Ramulator artifact cache (results, resolved timing, and command traces).",
+    )
+    parser.add_argument(
+        "--reuse-existing",
+        action="store_true",
+        help="Reuse a complete shared raw artifact instead of rerunning Ramulator.",
+    )
     parser.add_argument("--no-plot", action="store_true", help="Skip matplotlib plot generation.")
     args = parser.parse_args()
     args.lpddr4_nccd_values = (
@@ -734,8 +519,6 @@ def main() -> int:
         else parse_nccd_values(args.lpddr4_nccd_values)
     )
 
-    if not args.ramulator.exists():
-        raise FileNotFoundError(f"ramulator binary not found: {args.ramulator}")
     if not args.no_plot:
         ensure_matplotlib_available()
 

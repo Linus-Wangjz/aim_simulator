@@ -592,15 +592,17 @@ private:
             }
         }
 
-        // Check for rate (in MT/s), and if provided, calculate and set tCK (in picosecond)
+        // Keep rate for the secondary timing tables. GDDR6 timing presets carry
+        // their own CK period, so do not reinterpret rate with the DDR formula.
         if (auto dq = param_group("timing").param<int>("rate").optional()) {
             if (preset_provided) {
                 throw ConfigurationError("Cannot change the transfer rate of {} when using a speed preset !", get_name());
             }
             m_timing_vals("rate") = *dq;
         }
-        int tCK_ps = 1E6 / (m_timing_vals("rate") / 2);
-        m_timing_vals("tCK_ps") = tCK_ps;
+        // int tCK_ps = 1E6 / (m_timing_vals("rate") / 2);
+        // m_timing_vals("tCK_ps") = tCK_ps;
+        int tCK_ps = m_timing_vals("tCK_ps");
 
         // Load the organization specific timings
         int dq_id = [](int dq) -> int {

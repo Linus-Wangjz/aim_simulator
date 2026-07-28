@@ -17,6 +17,7 @@ target_sources(
 
   # impl/plugin/trr.cpp
   impl/plugin/trace_recorder.cpp
+  impl/plugin/dram_timing_exporter.cpp
   impl/plugin/cmd_counter.cpp
   impl/plugin/para.cpp
   impl/plugin/graphene.cpp

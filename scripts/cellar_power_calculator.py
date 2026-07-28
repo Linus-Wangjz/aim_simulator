@@ -1,144 +1,27 @@
-import sys
 import argparse
 import math
-import re
+from pathlib import Path
+
+from aim_analysis.commands import COMMANDS as commands, ISR_NAMES as isrs
+from aim_analysis.models import PIM_POWER_SCALE, PIM_TCCD_TIMING_KEY, dram_power_for_impl
+from aim_analysis.ramulator import (
+    command_count,
+    command_trace_files,
+    isr_count,
+    last_stat_with_suffix,
+    load_resolved_timing,
+    parse_command_trace,
+    read_result_stats,
+    result_cycles,
+)
 
 KILO = 1000
 MEGA = 1000000
 GIGA = 1000000000
-FREQ = 2.00 * GIGA
-PIM_FREQ = 1.00 * GIGA
 
 CH_PER_DV = 32.00
 
-GDDR6_COMMANDS = [
-    "ACT",
-    "PREA",
-    "PRE",
-    "RD",
-    "WR",
-    "RDA",
-    "WRA",
-    "REFab",
-    "REFpb",
-    "ACT4",
-    "ACT16",
-    "PRE4",
-    "MAC",
-    "MAC16",
-    "AF16",
-    "EWMUL16",
-    "RDCP",
-    "WRCP",
-    "WRGB",
-    "RDMAC16",
-    "RDAF16",
-    "WRMAC16",
-    "WRA16",
-    "TMOD",
-    "SYNC",
-    "EOC",
-]
-
-LPDDR4_COMMANDS = [
-    "ACT-1",
-    "ACT-2",
-    "CASRD",
-    "CASWR",
-    "CASWRGB",
-    "CASWRMAC8",
-    "CASRDMAC8",
-    "CASRDAF8",
-    "CASWRA8",
-    "RFMab",
-    "RFMpb",
-    "ACT4-1",
-    "ACT8-1",
-    "ACT4-2",
-    "ACT8-2",
-    "MAC8",
-    "AF8",
-    "EWMUL8",
-    "RDMAC8",
-    "RDAF8",
-    "WRMAC8",
-    "WRA8",
-]
-
-# Superset of commands emitted by the GDDR6 and LPDDR4 AiM models. GDDR6 uses
-# the *16 all-bank command family; LPDDR4_AiM_org has eight banks and emits *8.
-commands = list(dict.fromkeys(GDDR6_COMMANDS + LPDDR4_COMMANDS))
-
-isrs =  ["WR_SBK",
-        "WR_GB",
-        "WR_BIAS",
-        "WR_AFLUT",
-        "RD_MAC",
-        "RD_AF",
-        "RD_SBK",
-        "COPY_BKGB",
-        "COPY_GBBK",
-        "MAC_SBK",
-        "MAC_ABK",
-        "AF",
-        "EWMUL",
-        "EWADD",
-        "WR_ABK",
-        "EOC",
-        "SYNC"]
-
-tRC = 44.5
-tBL = 1.25
-DEFAULT_PIM_TCCD_CYCLES = {
-    # GDDR6_AiM_timing uses nCCDL=2. nCCDS is also 2 in the current preset.
-    "GDDR6": 2.00,
-    # LPDDR4_AiM_timing default; sweep outputs override this through _nCCDx.
-    "LPDDR4": 6.00,
-    "LPDDR4X": 6.00,
-}
-NCCD_PATH_RE = re.compile(r"_nCCD(\d+)")
-
-# DRAM_POWER = {  "ACT_STBY": 415,
-#                 "PRE_STBY": 317.5,
-#                 "ACT": 93.9,
-#                 "WR": 915,
-#                 "RD": 525}
-
-# "ACT_STBY": VDD * IDD3N
-# "PRE_STBY": VDD * IDD2N
-# "ACT": VDD * (IDD0 - IDD3N)  
-# "WR": VDD * (IDD4W - IDD3N)
-# "RD": VDD * (IDD4R - IDD3N)
-
-GDDR6_DRAM_POWER = {
-    "ACT_STBY": 527.5 / 2.00,  # 415
-    "PRE_STBY": 366.3 / 2.00,  # 317.5
-    "ACT": 132.6 / 2.00,       # 93.9
-    "WR": 1106.3 / 2.00,       # 915
-    "RD": 876.3 / 2.00,        # 525
-}
-
-LPDDR4_DRAM_POWER = {
-    "ACT_STBY": 1.8 * 2 + 1.1 * 34.5 + 1.1 * 0.1,
-    "PRE_STBY": 1.8 * 0.6 + 1.1 * 31 + 1.1 * 0.1,
-    "ACT": 1.8 * (9 - 2) + 1.1 * (53 - 34.5) + 1.1 * (0.1 - 0.1),
-    "WR": 1.8 * (2 - 2) + 1.1 * (265 - 34.5) + 1.1 * (0.3 - 0.1),
-    "RD": 1.8 * (2.5 - 2) + 1.1 * (287 - 34.5) + 1.1 * (105 - 0.1),
-}
-
-LPDDR4X_DRAM_POWER = {
-    "ACT_STBY": 1.8 * 2 + 1.1 * 34.5 + 0.6 * 0.1,
-    "PRE_STBY": 1.8 * 0.6 + 1.1 * 31 + 0.6 * 0.1,
-    "ACT": 1.8 * (9 - 2) + 1.1 * (53 - 34.5) + 0.6 * (0.1 - 0.1),
-    "WR": 1.8 * (2 - 2) + 1.1 * (265 - 34.5) + 0.6 * (0.3 - 0.1),
-    "RD": 1.8 * (2.5 - 2) + 1.1 * (287 - 34.5) + 0.6 * (85 - 0.1),
-}
-
-DRAM_POWER_BY_IMPL = {
-    "GDDR6": GDDR6_DRAM_POWER,
-    "LPDDR4": LPDDR4_DRAM_POWER,
-    "LPDDR4X": LPDDR4X_DRAM_POWER,
-}
+DRAM_ENERGY_MODELS = ("legacy", "improved")
 
 # RED: Reduction Tree
 # EXP: Exponent
@@ -195,90 +78,188 @@ PCIE_ENERGY = 4.4
 
 WORD_SIZE = 256
 
-def command_processor(stat_path):
-    file = open(stat_path, 'r')
-    lines = file.readlines()
-    file.close()
-    stat = {}
-    for command in commands:
-        stat[command] = 0.00
-    for isr in isrs:
-        stat[isr] = 0.00
-    stat["cycles"] = 0.00
-    stat["idle_cycles"] = 0.00
-    stat["active_cycles"] = 0.00
-    stat["precharged_cycles"] = 0.00
-    stat["dram_impl"] = ""
-    stat["pim_tccd_cycles"] = 0.00
-    
-    for line in lines:
-        words = line.split(' ')
-        while len(words) > 0 and words[0] == "":
-            words.pop(0)
-        if words[0] == "Processing":
-            if len(stat.keys()) > 0:
-                print("Error: multiple files in the same log")
-                exit(1)
-        if "memory_system_cycles" in words[0]:
-            assert stat["cycles"] == 0
-            stat["cycles"] = float(words[1])
-        if words[0] == "impl:" and len(words) > 1:
-            impl = words[1].strip()
-            if impl in {"GDDR6", "LPDDR4", "LPDDR4X"}:
-                stat["dram_impl"] = impl
-        if "idle_cycles" in words[0]:
-            stat["idle_cycles"] = float(words[1])
-        if "active_cycles" in words[0]:
-            stat["active_cycles"] = float(words[1])
-        if "precharged_cycles" in words[0]:
-            stat["precharged_cycles"] = float(words[1])
-        for command in commands:
-            if "num_" + command + "_commands" in words[0]:
-                stat[command] += float(words[1])
-        for isr in isrs:
-            if "total_num_AiM_ISR_" + isr + "_requests" in words[0]:
-                stat[isr] += float(words[1])
 
-    if stat["dram_impl"] in {"LPDDR4", "LPDDR4X"}:
-        match = NCCD_PATH_RE.search(str(stat_path))
-        if match:
-            stat["pim_tccd_cycles"] = float(match.group(1))
-    if stat["pim_tccd_cycles"] == 0.00 and stat["dram_impl"] in DEFAULT_PIM_TCCD_CYCLES:
-        stat["pim_tccd_cycles"] = DEFAULT_PIM_TCCD_CYCLES[stat["dram_impl"]]
+def command_processor(stat_path, timing_path):
+    result = read_result_stats(Path(stat_path))
+    timing_impl, timing = load_resolved_timing(Path(timing_path))
+    stat = {command: command_count(result, command) for command in commands}
+    stat.update({isr: isr_count(result, isr) for isr in isrs})
+    stat["cycles"] = float(result_cycles(result))
+    stat["idle_cycles"] = last_stat_with_suffix(result, "_idle_cycles")
+    stat["active_cycles"] = last_stat_with_suffix(result, "_active_cycles")
+    stat["precharged_cycles"] = last_stat_with_suffix(result, "_precharged_cycles")
+    stat["dram_impl"] = timing_impl
+    stat["timing"] = timing
+
+    stat["tCK_ps"] = timing["tCK_ps"]
+    stat["tRC_ns"] = timing["nRC"] * stat["tCK_ps"] / KILO
+    stat["tBL_ns"] = timing["nBL"] * stat["tCK_ps"] / KILO
+    stat["pim_tccd_cycles"] = timing[PIM_TCCD_TIMING_KEY[timing_impl]]
+    stat["pim_tccd_ns"] = stat["pim_tccd_cycles"] * stat["tCK_ps"] / KILO
 
     # ms (average of all channels)
-    stat["latency"] = stat["cycles"] * KILO / FREQ
+    stat["latency"] = stat["cycles"] * stat["tCK_ps"] / GIGA
     # ms (average of all channels)
-    stat["active_latency"] = stat["active_cycles"] / CH_PER_DV * KILO / FREQ
+    stat["active_latency"] = stat["active_cycles"] / CH_PER_DV * stat["tCK_ps"] / GIGA
     # ms (average of all channels)
-    stat["precharged_latency"] = stat["precharged_cycles"] / CH_PER_DV * KILO / FREQ
+    stat["precharged_latency"] = stat["precharged_cycles"] / CH_PER_DV * stat["tCK_ps"] / GIGA
     # % (average of all channels)
     stat["utilization"] = 100.00 - (stat["idle_cycles"] / CH_PER_DV / stat["cycles"]) * 100.00
     return stat
 
-def dram_power_for_impl(dram_impl):
-    if dram_impl not in DRAM_POWER_BY_IMPL:
-        raise ValueError(f"Unknown DRAM impl '{dram_impl}'. Expected one of: {', '.join(DRAM_POWER_BY_IMPL)}")
 
-    dram_power = DRAM_POWER_BY_IMPL[dram_impl]
-    missing = [name for name, value in dram_power.items() if value is None]
-    if missing:
-        raise ValueError(f"Fill {dram_impl}_DRAM_POWER values for: {', '.join(missing)}")
-    return dram_power
+def improved_trace_stats(trace_prefix, dram_impl, memory_system_cycles):
+    trace_paths = command_trace_files(trace_prefix)
+    if not trace_paths:
+        raise FileNotFoundError(
+            f"No TraceRecorder files found for {trace_prefix}. "
+            "Run Ramulator with the TraceRecorder plugin."
+        )
 
-def power_calculator(stat, PCIE_bits, Head, HiddenDim, Tokens, GQA, dram_power_impl=None):
+    all_bank_count = 16 if dram_impl == "GDDR6" else 8
+    bankgroup_index = 1 if dram_impl == "GDDR6" else 2
+    bank_index = 2 if dram_impl == "GDDR6" else 3
+    totals = {
+        "ACT_STBY_cycles": 0.00,
+        "PRE_STBY_cycles": 0.00,
+        "ACT_cycles": 0.00,
+        "PRE_cycles": 0.00,
+        "RD_cycles": 0.00,
+        "WR_cycles": 0.00,
+        "PIM_cycles": 0.00,
+    }
+
+    def account_interval(cycles, open_banks, previous_activities):
+        if cycles < 0:
+            raise ValueError(f"Command trace is not monotonic: {trace_prefix}")
+        if open_banks:
+            totals["ACT_STBY_cycles"] += cycles
+        else:
+            totals["PRE_STBY_cycles"] += cycles
+        for activity, scale in previous_activities:
+            totals[f"{activity}_cycles"] += scale * cycles
+
+    for path in trace_paths:
+        issued = parse_command_trace(path)
+        if not issued:
+            continue
+
+        open_banks = 0
+        previous_clock = 0
+        previous_activities = []
+        for event in issued:
+            clock = event.clock
+            command = event.command
+            addr = event.address
+            account_interval(clock - previous_clock, open_banks, previous_activities)
+            activities = []
+
+            if command == "ACT16" or command == "ACT8-2":
+                # Temporary model: an all-bank ACT is one ACT-energy event.
+                activities.append(("ACT", 1.00))
+                open_banks = (1 << all_bank_count) - 1
+            elif command == "ACT4" or command == "ACT4-2":
+                activities.append(("ACT", 1.00))
+                bankgroup = addr[bankgroup_index]
+                for bank in range(bankgroup * 4, (bankgroup + 1) * 4):
+                    open_banks |= 1 << bank
+            elif command == "ACT" or command == "ACT-2":
+                activities.append(("ACT", 1.00))
+                open_banks |= 1 << addr[bank_index]
+            elif command in {"PREA", "WRA16", "WRA8"}:
+                activities.append(("PRE", all_bank_count))
+                open_banks = 0
+            elif command == "PRE4":
+                activities.append(("PRE", 4.00))
+                bankgroup = addr[bankgroup_index]
+                for bank in range(bankgroup * 4, (bankgroup + 1) * 4):
+                    open_banks &= ~(1 << bank)
+            elif command in {"PRE", "RDA", "WRA"}:
+                activities.append(("PRE", 1.00))
+                open_banks &= ~(1 << addr[bank_index])
+            elif command == "REFab":
+                open_banks = 0
+
+            if command in {"RD", "RDA", "RDCP", "RDMAC16", "RDAF16", "RDMAC8", "RDAF8"}:
+                activities.append(("RD", 1.00))
+            elif command in {"AF16", "AF8"}:
+                activities.append(("RD", all_bank_count))
+
+            if command in {"WR", "WRA", "WRCP", "WRMAC16", "WRMAC8"}:
+                activities.append(("WR", 1.00))
+            elif command in {"WRA16", "WRA8"}:
+                activities.append(("WR", all_bank_count))
+
+            if command in {"MAC", "MAC16", "MAC8"}:
+                activities.append(("PIM", 1.00))
+
+            previous_clock = clock
+            previous_activities = activities
+
+        account_interval(memory_system_cycles - previous_clock, open_banks, previous_activities)
+
+    return totals
+
+
+def improved_dram_energy(stat, dram_power, command_trace_prefix):
+    trace_stats = improved_trace_stats(command_trace_prefix, stat["dram_impl"], stat["cycles"])
+    tCK_ps = stat["tCK_ps"]
+    pim_power_scale = PIM_POWER_SCALE[stat["dram_impl"]]
+    pim_active_power = pim_power_scale * dram_power["RD"] / (stat["pim_tccd_cycles"] / 2.00)
+
+    dq_commands = stat["RD"] + stat["WR"] + stat["RDA"] + stat["WRA"]
+    dq_commands += stat["WRGB"] + stat["RDMAC16"] + stat["RDAF16"] + stat["WRMAC16"] + stat["WRA16"]
+    dq_commands += stat["RDMAC8"] + stat["RDAF8"] + stat["WRMAC8"] + stat["WRA8"]
+
+    energy = {
+        "ACT": dram_power["ACT"] * trace_stats["ACT_cycles"] * tCK_ps / 1e12,
+        "PRE": dram_power["PRE"] * trace_stats["PRE_cycles"] * tCK_ps / 1e12,
+        "RD": dram_power["RD"] * trace_stats["RD_cycles"] * tCK_ps / 1e12,
+        "WR": dram_power["WR"] * trace_stats["WR_cycles"] * tCK_ps / 1e12,
+        "PIM": pim_active_power * trace_stats["PIM_cycles"] * tCK_ps / 1e12,
+        "ACT_STBY": dram_power["ACT_STBY"] * trace_stats["ACT_STBY_cycles"] * tCK_ps / 1e12,
+        "PRE_STBY": dram_power["PRE_STBY"] * trace_stats["PRE_STBY_cycles"] * tCK_ps / 1e12,
+        "DQ": DQ_ENERGY * WORD_SIZE * dq_commands / GIGA,
+        "PCIe": 0.00,
+    }
+    stat["improved_trace_stats"] = trace_stats
+    return energy
+
+
+def power_calculator(
+    stat,
+    PCIE_bits,
+    Head,
+    HiddenDim,
+    Tokens,
+    GQA,
+    dram_power_impl=None,
+    dram_energy_model="legacy",
+    command_trace_prefix=None,
+):
     energy = {}
     latency = {}
     timing_impl = stat["dram_impl"]
     dram_power = dram_power_for_impl(dram_power_impl or timing_impl)
+    tCK_ps = stat["tCK_ps"]
+    tRC_ns = stat["tRC_ns"]
+    tBL_ns = stat["tBL_ns"]
+
+    if dram_energy_model not in DRAM_ENERGY_MODELS:
+        raise ValueError(f"Unknown DRAM energy model '{dram_energy_model}'. Expected one of: {', '.join(DRAM_ENERGY_MODELS)}")
+    if dram_energy_model == "improved":
+        if command_trace_prefix is None:
+            raise ValueError("The improved DRAM energy model requires a TraceRecorder command-trace prefix")
+        energy.update(improved_dram_energy(stat, dram_power, command_trace_prefix))
+        energy["PCIe"] = PCIE_bits * PCIE_ENERGY / GIGA
 
     # LPDDR4 splits activation into ACT*-1/ACT*-2. Only ACT*-2 is marked as
     # the actual opening command.
-    if timing_impl in {"LPDDR4", "LPDDR4X"}:
+    elif timing_impl in {"LPDDR4", "LPDDR4X"}:
         all_bank_count = 8.00
         act_equiv = stat["ACT-2"]
-        act_equiv += 4.00 * stat["ACT4-2"]
-        act_equiv += all_bank_count * stat["ACT8-2"]
+        act_equiv += stat["ACT4-2"]
+        act_equiv += stat["ACT8-2"]
 
         rd_data_commands = stat["RDCP"] + stat["RD"] + stat["RDA"]
         rd_data_commands += all_bank_count * stat["AF8"] + stat["RDMAC8"] + stat["RDAF8"]
@@ -289,16 +270,17 @@ def power_calculator(stat, PCIE_bits, Head, HiddenDim, Tokens, GQA, dram_power_i
         pim_commands = stat["MAC"] / all_bank_count
         pim_commands += stat["MAC8"]
         pim_commands += (stat["EWMUL16"] + stat["EWMUL8"]) / 4.00
-        pim_cycle_ns = GIGA / PIM_FREQ
+        pim_cycle_ns = stat["pim_tccd_ns"]
+        pim_active_power = PIM_POWER_SCALE[timing_impl] * dram_power["RD"] / (stat["pim_tccd_cycles"] / 2.00)
 
         dq_commands = stat["RD"] + stat["WR"] + stat["RDA"] + stat["WRA"]
         dq_commands += stat["WRGB"] + stat["RDMAC16"] + stat["RDAF16"] + stat["WRMAC16"] + stat["WRA16"]
         dq_commands += stat["RDMAC8"] + stat["RDAF8"] + stat["WRMAC8"] + stat["WRA8"]
 
-        energy["ACT/PRE"] = dram_power["ACT"] * act_equiv * tRC / GIGA
-        energy["RD"] = dram_power["RD"] * rd_data_commands * tBL / GIGA
-        energy["WR"] = dram_power["WR"] * wr_data_commands * tBL / GIGA
-        energy["PIM"] = 1.5 * dram_power["RD"] * pim_commands * pim_cycle_ns / GIGA
+        energy["ACT/PRE"] = dram_power["ACT"] * act_equiv * tRC_ns / GIGA
+        energy["RD"] = dram_power["RD"] * rd_data_commands * tBL_ns / GIGA
+        energy["WR"] = dram_power["WR"] * wr_data_commands * tBL_ns / GIGA
+        energy["PIM"] = pim_active_power * pim_commands * pim_cycle_ns / GIGA
         energy["ACT_STBY"] = dram_power["ACT_STBY"] * CH_PER_DV * stat["active_latency"] / KILO
         energy["PRE_STBY"] = dram_power["PRE_STBY"] * CH_PER_DV * stat["precharged_latency"] / KILO
         energy["DQ"] = DQ_ENERGY * WORD_SIZE * dq_commands / GIGA
@@ -307,8 +289,8 @@ def power_calculator(stat, PCIE_bits, Head, HiddenDim, Tokens, GQA, dram_power_i
     elif timing_impl == "GDDR6":
         all_bank_count = 16.00
         act_equiv = stat["ACT"]
-        act_equiv += 4.00 * stat["ACT4"]
-        act_equiv += all_bank_count * stat["ACT16"]
+        act_equiv += stat["ACT4"]
+        act_equiv += stat["ACT16"]
 
         rd_data_commands = stat["RDCP"] + stat["RD"] + stat["RDA"]
         rd_data_commands += all_bank_count * stat["AF16"] + stat["RDMAC16"] + stat["RDAF16"]
@@ -319,16 +301,17 @@ def power_calculator(stat, PCIE_bits, Head, HiddenDim, Tokens, GQA, dram_power_i
         pim_commands = stat["MAC"] / all_bank_count
         pim_commands += stat["MAC16"]
         pim_commands += (stat["EWMUL16"] + stat["EWMUL8"]) / 4.00
-        pim_cycle_ns = GIGA / PIM_FREQ
+        pim_cycle_ns = stat["pim_tccd_ns"]
+        pim_active_power = PIM_POWER_SCALE[timing_impl] * dram_power["RD"] / (stat["pim_tccd_cycles"] / 2.00)
 
         dq_commands = stat["RD"] + stat["WR"] + stat["RDA"] + stat["WRA"]
         dq_commands += stat["WRGB"] + stat["RDMAC16"] + stat["RDAF16"] + stat["WRMAC16"] + stat["WRA16"]
         dq_commands += stat["RDMAC8"] + stat["RDAF8"] + stat["WRMAC8"] + stat["WRA8"]
 
-        energy["ACT/PRE"] = dram_power["ACT"] * act_equiv * tRC / GIGA
-        energy["RD"] = dram_power["RD"] * rd_data_commands * tBL / GIGA
-        energy["WR"] = dram_power["WR"] * wr_data_commands * tBL / GIGA
-        energy["PIM"] = 3 * dram_power["RD"] * pim_commands * pim_cycle_ns / GIGA
+        energy["ACT/PRE"] = dram_power["ACT"] * act_equiv * tRC_ns / GIGA
+        energy["RD"] = dram_power["RD"] * rd_data_commands * tBL_ns / GIGA
+        energy["WR"] = dram_power["WR"] * wr_data_commands * tBL_ns / GIGA
+        energy["PIM"] = pim_active_power * pim_commands * pim_cycle_ns / GIGA
         energy["ACT_STBY"] = dram_power["ACT_STBY"] * CH_PER_DV * stat["active_latency"] / KILO
         energy["PRE_STBY"] = dram_power["PRE_STBY"] * CH_PER_DV * stat["precharged_latency"] / KILO
         energy["DQ"] = DQ_ENERGY * WORD_SIZE * dq_commands / GIGA
@@ -343,20 +326,20 @@ def power_calculator(stat, PCIE_bits, Head, HiddenDim, Tokens, GQA, dram_power_i
     ISR_COUNT += stat["RDMAC16"] + stat["RDAF16"] + stat["WRMAC16"] + stat["WRA16"]
     ISR_COUNT += stat["RDMAC8"] + stat["RDAF8"] + stat["WRMAC8"] + stat["WRA8"]
     CMD_COUNT = sum(stat[x] for x in commands)
-    energy["MEM_CTR"] = (CTRL_POWER["TRX"] * ISR_COUNT + CTRL_POWER["PHY"] * CMD_COUNT) / CH_PER_CTRL / FREQ
+    energy["MEM_CTR"] = (CTRL_POWER["TRX"] * ISR_COUNT + CTRL_POWER["PHY"] * CMD_COUNT) / CH_PER_CTRL * tCK_ps / 1e12
 
     GQA_factor = 1.00 + 1.00 / GQA
     latency["RMSNorm_latency"] =  HiddenDim / 16.00 / 16.00 / CH_PER_DV * ACCEL_CYCLE["VEC"]    # EMB /16.00 /16.00 ADD
     latency["RMSNorm_latency"] += SB_RD_CYCLE + SB_WR_CYCLE + 1.00                              # 1 RED
     latency["RMSNorm_latency"] += RV_RMSNorm_CYCLE                                              # 1 RISCV
-    latency["RMSNorm_latency"] = float(2.00 * latency["RMSNorm_latency"]) / float(FREQ / KILO)
+    latency["RMSNorm_latency"] = 2.00 * latency["RMSNorm_latency"] * tCK_ps / GIGA
     latency["Softmax_latency"] =  Tokens * Head / 16.00 / CH_PER_DV * ACCEL_CYCLE["EXP"]        # TOK*HEAD /16.00 EXP
     latency["Softmax_latency"] += Tokens * Head / 16.00 / CH_PER_DV * ACCEL_CYCLE["VEC"]        # TOK*HEAD /16.00 ADD
     latency["Softmax_latency"] += Head * 1.00 * SB_RD_CYCLE                                     # HEAD RED
     latency["Softmax_latency"] += Head * RV_SFT_CYCLE_PIPELINE                                  # HEAD RISCV
-    latency["Softmax_latency"] = float(latency["Softmax_latency"]) / float(FREQ / KILO)
+    latency["Softmax_latency"] = latency["Softmax_latency"] * tCK_ps / GIGA
     latency["RotEmbed_latency"] = HiddenDim * RV_ROTEmbed_CYCLE                                 # EMB RISCV
-    latency["RotEmbed_latency"] = float(GQA_factor * latency["RotEmbed_latency"]) / float(FREQ / KILO)
+    latency["RotEmbed_latency"] = GQA_factor * latency["RotEmbed_latency"] * tCK_ps / GIGA
 
     # Static
     energy["GB_STT"] = stat["latency"] * SRAM_POWER["GB"]["STT"] * CH_PER_DV / KILO
@@ -367,12 +350,12 @@ def power_calculator(stat, PCIE_bits, Head, HiddenDim, Tokens, GQA, dram_power_i
     energy["VEC_STT"] = stat["latency"] * ACCEL_POWER["VEC"]["STT"] * CH_PER_DV / KILO
 
     # SRAM Power
-    energy["GB_RD"] = SRAM_POWER["GB"]["RD"] * (stat["WRCP"]) / FREQ
-    energy["GB_WR"] = SRAM_POWER["GB"]["WR"] * (stat["WRGB"] + stat["RDCP"]) / FREQ
-    energy["SB_DYN"] = 2.00 * (HiddenDim / 16.00 / 16.00 + 1.00 + 1.00) * (2.00 * SRAM_POWER["SB"]["RD"] + 1.00 * SRAM_POWER["SB"]["WR"]) / FREQ    # RMSNorm: EMB /16.00 /16.00 ADD + 1 RED + 1 RV [First 16.00 is #SIMD lanes, Second is because of PU 16.00-to-1 MAC]
-    energy["SB_DYN"] += ((Tokens * Head / 16.00 * 3 + Head * 2.00) * SRAM_POWER["SB"]["RD"]) / FREQ                                                 # Softmax: TOK * HEAD / 16.00 EXP and ADD + HEAD RED
-    energy["SB_DYN"] += ((Tokens * Head / 16.00 * 2.00 + Head * 2.00) * SRAM_POWER["SB"]["WR"]) / FREQ                                              # Softmax: TOK * HEAD / 16.00 EXP and ADD + HEAD RED
-    energy["SB_DYN"] += GQA_factor * HiddenDim / 16.00 * (SRAM_POWER["SB"]["RD"] + 2.00 * SRAM_POWER["SB"]["WR"]) / FREQ                            # RotEmbed: EMB /16.00 RV (1 ld + 2.00 st)
+    energy["GB_RD"] = SRAM_POWER["GB"]["RD"] * stat["WRCP"] * tCK_ps / 1e12
+    energy["GB_WR"] = SRAM_POWER["GB"]["WR"] * (stat["WRGB"] + stat["RDCP"]) * tCK_ps / 1e12
+    energy["SB_DYN"] = 2.00 * (HiddenDim / 16.00 / 16.00 + 1.00 + 1.00) * (2.00 * SRAM_POWER["SB"]["RD"] + 1.00 * SRAM_POWER["SB"]["WR"]) * tCK_ps / 1e12    # RMSNorm: EMB /16.00 /16.00 ADD + 1 RED + 1 RV [First 16.00 is #SIMD lanes, Second is because of PU 16.00-to-1 MAC]
+    energy["SB_DYN"] += (Tokens * Head / 16.00 * 3 + Head * 2.00) * SRAM_POWER["SB"]["RD"] * tCK_ps / 1e12                                                 # Softmax: TOK * HEAD / 16.00 EXP and ADD + HEAD RED
+    energy["SB_DYN"] += (Tokens * Head / 16.00 * 2.00 + Head * 2.00) * SRAM_POWER["SB"]["WR"] * tCK_ps / 1e12                                              # Softmax: TOK * HEAD / 16.00 EXP and ADD + HEAD RED
+    energy["SB_DYN"] += GQA_factor * HiddenDim / 16.00 * (SRAM_POWER["SB"]["RD"] + 2.00 * SRAM_POWER["SB"]["WR"]) * tCK_ps / 1e12                            # RotEmbed: EMB /16.00 RV (1 ld + 2.00 st)
     
     ISR_COUNT = 0
     for isr in isrs:
@@ -380,20 +363,20 @@ def power_calculator(stat, PCIE_bits, Head, HiddenDim, Tokens, GQA, dram_power_i
     ISR_COUNT += 2.00 * (HiddenDim / 16.00 / 16.00 + 2.00)              # RMSNorm
     ISR_COUNT += (Tokens * Head / 16.00 * 2.00 + Head * 2.00)           # Softmax
     ISR_COUNT += GQA_factor * HiddenDim                                 # RotEmbed
-    energy["IB_DYN"] = ISR_COUNT * SRAM_POWER["IB"]["RD"] / FREQ
+    energy["IB_DYN"] = ISR_COUNT * SRAM_POWER["IB"]["RD"] * tCK_ps / 1e12
 
     # Accelerator Power
-    energy["RV_DYN"] = 2.00 * RV_RMSNorm_CYCLE * ACCEL_POWER["RV"] / FREQ                       # RMSNorm: 1 RISCV
-    energy["RV_DYN"] += Head * RV_SFT_CYCLE_SINGLE * ACCEL_POWER["RV"] / FREQ                   # Softmax: HEAD RISCV
-    energy["RV_DYN"] += GQA_factor * HiddenDim * RV_ROTEmbed_CYCLE * ACCEL_POWER["RV"] / FREQ   # RotEmbed: EMB RISCV
+    energy["RV_DYN"] = 2.00 * RV_RMSNorm_CYCLE * ACCEL_POWER["RV"] * tCK_ps / 1e12                       # RMSNorm: 1 RISCV
+    energy["RV_DYN"] += Head * RV_SFT_CYCLE_SINGLE * ACCEL_POWER["RV"] * tCK_ps / 1e12                   # Softmax: HEAD RISCV
+    energy["RV_DYN"] += GQA_factor * HiddenDim * RV_ROTEmbed_CYCLE * ACCEL_POWER["RV"] * tCK_ps / 1e12   # RotEmbed: EMB RISCV
 
-    energy["RED_DYN"] = 2.00 * (1.00 * ACCEL_POWER["RED"]["DYN"]) / FREQ                    # 1 RED (RMSNorm)
-    energy["RED_DYN"] +=(Head * ACCEL_POWER["RED"]["DYN"]) / FREQ                           # HEAD RED (Softmax)
+    energy["RED_DYN"] = 2.00 * (1.00 * ACCEL_POWER["RED"]["DYN"]) * tCK_ps / 1e12                    # 1 RED (RMSNorm)
+    energy["RED_DYN"] += Head * ACCEL_POWER["RED"]["DYN"] * tCK_ps / 1e12                           # HEAD RED (Softmax)
 
-    energy["EXP_DYN"] = (Tokens * Head / 16.00 * ACCEL_POWER["EXP"]["DYN"]) / FREQ          # TOK*HEAD /16.00 EXP (Softmax)
+    energy["EXP_DYN"] = Tokens * Head / 16.00 * ACCEL_POWER["EXP"]["DYN"] * tCK_ps / 1e12          # TOK*HEAD /16.00 EXP (Softmax)
 
-    energy["VEC_DYN"] = 2.00 * HiddenDim / 16.00 / 16.00 * ACCEL_POWER["VEC"]["DYN"] / FREQ     # EMB /16.00 /16.00 ADD (RMSNorm) [First 16.00 is #SIMD lanes, Second is because of PU 16.00-to-1 MAC]
-    energy["VEC_DYN"] +=(Tokens * Head / 16.00 * ACCEL_POWER["VEC"]["DYN"]) / FREQ              # TOK*HEAD /16.00 ADD (Softmax)
+    energy["VEC_DYN"] = 2.00 * HiddenDim / 16.00 / 16.00 * ACCEL_POWER["VEC"]["DYN"] * tCK_ps / 1e12     # EMB /16.00 /16.00 ADD (RMSNorm) [First 16.00 is #SIMD lanes, Second is because of PU 16.00-to-1 MAC]
+    energy["VEC_DYN"] += Tokens * Head / 16.00 * ACCEL_POWER["VEC"]["DYN"] * tCK_ps / 1e12              # TOK*HEAD /16.00 ADD (Softmax)
 
     # We simply assume all the other components have a switching activity of 0.5
     energy["DV_CTR"] = stat["latency"] * 0.5 * (ACCEL_POWER["CTR"]["STT"] + ACCEL_POWER["CTR"]["DYN"]) / KILO
@@ -406,7 +389,12 @@ def main():
 
     parser = argparse.ArgumentParser(description="Cellar Power Calculator")
     parser.add_argument("--mlog", help="path of the main ramulator log", type=str, required=True)
+    parser.add_argument("--mtiming", help="DRAMTimingExporter YAML for the main ramulator log", type=str, required=True)
+    parser.add_argument("--mcmd-trace", help="TraceRecorder prefix for the main ramulator log", type=str)
     parser.add_argument("--plog", help="path of the pim ramulator log (only if ch_per_bl > ch_per_dv)", type=str)
+    parser.add_argument("--ptiming", help="DRAMTimingExporter YAML for the PIM ramulator log (only if ch_per_bl > ch_per_dv)", type=str)
+    parser.add_argument("--pcmd-trace", help="TraceRecorder prefix for the PIM ramulator log (only if ch_per_bl > ch_per_dv)", type=str)
+    parser.add_argument("--dram-energy-model", choices=DRAM_ENERGY_MODELS, default="legacy")
     parser.add_argument("--head", help="Number of heads", type=int, required=True)
     parser.add_argument("--hidden", help="Hidden dimension (embedding size)", type=int, required=True)
     parser.add_argument("--fc", help="FC layer embedding dimension", type=int, required=True)
@@ -419,7 +407,11 @@ def main():
     args = parser.parse_args()
 
     mlog = args.mlog
+    mtiming = args.mtiming
+    mcmd_trace = args.mcmd_trace
     plog = args.plog
+    ptiming = args.ptiming
+    pcmd_trace = args.pcmd_trace
     fc = args.fc
     head = args.head
     hidden = args.hidden
@@ -438,9 +430,20 @@ def main():
 
     energy_token = {}
     power_alldv = {}
-    stat_main = command_processor(mlog)
+    stat_main = command_processor(mlog, mtiming)
     PCIE = hidden if CH_PER_BL <= CH_PER_DV else hidden * 10 + fc * 2.00
-    energy_main, latency_main = power_calculator(stat_main, PCIE, head, hidden, token, gqa)
+    if args.dram_energy_model == "improved" and not mcmd_trace:
+        parser.error("--mcmd-trace is required for --dram-energy-model improved")
+    energy_main, latency_main = power_calculator(
+        stat_main,
+        PCIE,
+        head,
+        hidden,
+        token,
+        gqa,
+        dram_energy_model=args.dram_energy_model,
+        command_trace_prefix=mcmd_trace,
+    )
 
     total_ch_used = block * CH_PER_BL
     total_dv_need = 0
@@ -449,10 +452,23 @@ def main():
         assert DV_PER_BL > 1.00
         PIPE_STAGES = DV / DV_PER_BL
         assert DV % DV_PER_BL == 0
-        stat_pim = command_processor(plog)
+        if not plog or not ptiming:
+            parser.error("--plog and --ptiming are both required when --ch_per_bl > --ch_per_dv")
+        if args.dram_energy_model == "improved" and not pcmd_trace:
+            parser.error("--pcmd-trace is required for --dram-energy-model improved when --ch_per_bl > --ch_per_dv")
+        stat_pim = command_processor(plog, ptiming)
         # print(stat_main)
         # print(stat_pim)
-        energy_pim, latency_pim = power_calculator(stat_pim, PCIE, head, hidden, token, gqa)
+        energy_pim, latency_pim = power_calculator(
+            stat_pim,
+            PCIE,
+            head,
+            hidden,
+            token,
+            gqa,
+            dram_energy_model=args.dram_energy_model,
+            command_trace_prefix=pcmd_trace,
+        )
         total_dv_need = block * DV_PER_BL
         for comp in energy_main.keys():
             energy_token[comp] = (energy_main[comp] + energy_pim[comp] * (DV_PER_BL - 1.00)) * block
@@ -488,7 +504,7 @@ def main():
 
     print(",\nenergy 1 token summary (mJ):") 
     print("DRAM,ctrl,DQ,DV,PCIe,Total")
-    print(energy_token["ACT/PRE"] + energy_token["RD"] + energy_token["WR"] + energy_token["PIM"] + energy_token["ACT_STBY"] + energy_token["PRE_STBY"] + energy_token["GB_STT"] + energy_token["GB_RD"] + energy_token["GB_WR"], end=",")
+    print(sum(energy_token[component] for component in ["ACT/PRE", "ACT", "PRE", "RD", "WR", "PIM", "ACT_STBY", "PRE_STBY", "GB_STT", "GB_RD", "GB_WR"] if component in energy_token), end=",")
     print(energy_token["MEM_CTR"], end=",")
     print(energy_token["DQ"], end=",")
     print(energy_token["IB_STT"] + energy_token["SB_STT"] + energy_token["RED_STT"] + energy_token["EXP_STT"] + energy_token["VEC_STT"] + energy_token["IB_DYN"] + energy_token["SB_DYN"] + energy_token["RV_DYN"] + energy_token["RED_DYN"] + energy_token["EXP_DYN"] + energy_token["VEC_DYN"] + energy_token["DV_CTR"], end=",")
@@ -508,7 +524,7 @@ def main():
 
     print(",\npower all devices summary (W):") 
     print("DRAM,ctrl,DQ,DV,PCIe,Total")
-    print(power_alldv["ACT/PRE"] + power_alldv["RD"] + power_alldv["WR"] + power_alldv["PIM"] + power_alldv["ACT_STBY"] + power_alldv["PRE_STBY"] + power_alldv["GB_STT"] + power_alldv["GB_RD"] + power_alldv["GB_WR"], end=",")
+    print(sum(power_alldv[component] for component in ["ACT/PRE", "ACT", "PRE", "RD", "WR", "PIM", "ACT_STBY", "PRE_STBY", "GB_STT", "GB_RD", "GB_WR"] if component in power_alldv), end=",")
     print(power_alldv["MEM_CTR"], end=",")
     print(power_alldv["DQ"], end=",")
     print(power_alldv["IB_STT"] + power_alldv["SB_STT"] + power_alldv["RED_STT"] + power_alldv["EXP_STT"] + power_alldv["VEC_STT"] + power_alldv["IB_DYN"] + power_alldv["SB_DYN"] + power_alldv["RV_DYN"] + power_alldv["RED_DYN"] + power_alldv["EXP_DYN"] + power_alldv["VEC_DYN"] + power_alldv["DV_CTR"], end=",")
@@ -524,7 +540,7 @@ def main():
     dram_power = dram_power_for_impl(stat_main["dram_impl"])
     DRAM_power_cap = ((dram_power["ACT_STBY"] + dram_power["WR"] + SRAM_POWER["GB"]["STT"])) * DV * CH_PER_DV / KILO
     ctrl_power_cap = (CTRL_POWER["TRX"] + CTRL_POWER["PHY"]) * DV * CH_PER_DV / CH_PER_CTRL / KILO
-    DQ_power_cap = (DQ_ENERGY * WORD_SIZE / tBL) * DV * CH_PER_DV / KILO
+    DQ_power_cap = (DQ_ENERGY * WORD_SIZE / stat_main["tBL_ns"]) * DV * CH_PER_DV / KILO
     DV_power_cap = SRAM_POWER["IB"]["STT"] + SRAM_POWER["SB"]["STT"] 
     DV_power_cap += (ACCEL_POWER["RED"]["STT"] + ACCEL_POWER["EXP"]["STT"] + ACCEL_POWER["VEC"]["STT"] + ACCEL_POWER["CTR"]["STT"]) * CH_PER_DV
     DV_power_cap += SRAM_POWER["IB"]["WR"] + SRAM_POWER["SB"]["WR"]
