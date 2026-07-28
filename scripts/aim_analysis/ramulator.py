@@ -112,10 +112,10 @@ def channel_active_cycles(stats: dict[str, float]) -> list[int]:
     return values
 
 
-def last_stat_with_suffix(stats: dict[str, float], suffix: str, default: float = 0.0) -> float:
-    """Return the last statistic matching a suffix, preserving legacy log semantics."""
+def sum_stats_with_suffix(stats: dict[str, float], suffix: str, default: float = 0.0) -> float:
+    """Sum per-channel statistics sharing a Ramulator result suffix."""
     values = [value for key, value in stats.items() if key.endswith(suffix)]
-    return values[-1] if values else default
+    return sum(values) if values else default
 
 
 def command_count(stats: dict[str, float], command: str) -> float:

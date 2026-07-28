@@ -29,7 +29,7 @@ from aim_analysis.runtime import configure_matplotlib_cache
 from aim_analysis.workloads import GEMV_WORKLOADS, GemvWorkload
 
 LEGACY_DRAM_ENERGY_COMPONENTS = ["ACT/PRE", "RD", "WR", "PIM", "ACT_STBY", "PRE_STBY"]
-IMPROVED_DRAM_ENERGY_COMPONENTS = ["ACT", "PRE", "RD", "WR", "PIM", "ACT_STBY", "PRE_STBY"]
+TRACE_BASED_DRAM_ENERGY_COMPONENTS = ["ACT", "PRE", "RD", "WR", "PIM", "ACT_STBY", "PRE_STBY"]
 SYSTEM_COMPONENT_GROUPS = {
     "DQ_IO": ["DQ"],
     "CTRL_PHY": ["MEM_CTR"],
@@ -46,8 +46,8 @@ CELLAR_LLM_OVERHEAD_GROUPS = {
 def dram_energy_components(dram_energy_model: str) -> list[str]:
     if dram_energy_model == "legacy":
         return LEGACY_DRAM_ENERGY_COMPONENTS
-    if dram_energy_model == "improved":
-        return IMPROVED_DRAM_ENERGY_COMPONENTS
+    if dram_energy_model == "trace-based":
+        return TRACE_BASED_DRAM_ENERGY_COMPONENTS
     raise ValueError(f"unknown DRAM energy model: {dram_energy_model}")
 
 
@@ -98,10 +98,10 @@ def dram_energy_from_result(
     command_trace_prefix: Path | None = None,
     dram_power_impl: str | None = None,
 ) -> tuple[dict[str, float], dict[str, float]]:
-    stat = cellar.command_processor(str(result), timing_export)
+    stat = cellar.read_run_statistics(str(result), timing_export)
     # Head/Tokens/GQA are placeholders for this GEMV script. By default the
     # plotting scope does not include Cellar's synthetic LLM-side dynamic terms.
-    energy, _latency = cellar.power_calculator(
+    energy, _latency = cellar.calculate_energy_and_latency(
         stat,
         PCIE_bits=pcie_bits,
         Head=1,
@@ -350,7 +350,7 @@ def metric_title(metric: str, lpddr4_nccd_values: list[int], energy_scope: str, 
     nccd_text = ",".join(str(value) for value in lpddr4_nccd_values)
     timing_text = f"LPDDR4X power, LPDDR4 timing nCCD={nccd_text}"
     scope_text = "DRAM" if energy_scope == "dram" else "System"
-    model_text = "Improved Power Model" if dram_energy_model == "improved" else "Command-count model"
+    model_text = "Trace-Based Power Model" if dram_energy_model == "trace-based" else "Command-count model"
     if metric == "energy":
         return f"GEMV {scope_text} Energy Breakdown: {model_text} ({timing_text})"
     if metric == "power":
@@ -604,7 +604,7 @@ def main() -> int:
         "--dram-energy-model",
         choices=cellar.DRAM_ENERGY_MODELS,
         default="legacy",
-        help="legacy uses command counts; improved replays TraceRecorder command intervals for DRAM active, standby, and PIM energy.",
+        help="legacy uses command counts; trace-based replays TraceRecorder command intervals for DRAM active, standby, and PIM energy.",
     )
     parser.add_argument(
         "--energy-scope",

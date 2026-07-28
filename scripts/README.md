@@ -50,7 +50,7 @@ defined in `aim_analysis/workloads.py`. CSV and plot outputs go to
 
 ```bash
 python scripts/sweep_nccd_gemv.py --reuse-existing
-python scripts/sweep_nccd_gemv.py --nccd-values 2,6 --metric memory_system
+python scripts/sweep_nccd_gemv.py --nccd-values 2,4,6,8 --metric memory_system
 ```
 
 | Parameter | Default | Meaning |
@@ -96,7 +96,7 @@ power rails are used for the LPDDR bars. Outputs are written to
 ```bash
 python scripts/plot_gemv_energy_breakdown.py --reuse-existing
 python scripts/plot_gemv_energy_breakdown.py \
-  --dram-energy-model improved --energy-scope system --reuse-existing
+  --dram-energy-model trace-based --energy-scope system --reuse-existing
 ```
 
 | Parameter | Default | Meaning |
@@ -104,12 +104,12 @@ python scripts/plot_gemv_energy_breakdown.py \
 | `--output-dir PATH` | `output/gemv_dram_energy_breakdown` | Directory for energy CSV and plots. |
 | `--nccd-values LIST` | `2,6` | Comma-separated LPDDR4 timing nCCD values. |
 | `--ch-per-dv N` | `32` | Channels represented by one device in system-level estimates. |
-| `--dram-energy-model NAME` | `legacy` | `legacy` estimates dynamic DRAM energy from command counts; `improved` replays actual command intervals from TraceRecorder for ACT/PRE, RD/WR, PIM, and standby energy. |
+| `--dram-energy-model NAME` | `legacy` | `legacy` estimates dynamic DRAM energy from command counts; `trace-based` replays actual command intervals from TraceRecorder for ACT/PRE, RD/WR, PIM, and standby energy. In both models, ACT4/ACT8/ACT16 are charged as 4/8/16 single-bank ACT events. |
 | `--energy-scope NAME` | `dram` | `dram` includes DRAM components only; `system` additionally includes DQ, controller/PHY, and trace-relevant PNM components. |
 | `--pcie-bits N` | `0` | Optional host PCIe traffic included only in system scope. GEMV traces do not encode this traffic. |
 | `--include-cellar-llm-overhead` | off | In system scope, include Cellar's synthetic RMSNorm, Softmax, and RotEmbed PNM dynamic terms. |
 
-For `improved`, the shared cache must contain command traces. The common
+For `trace-based`, the shared cache must contain command traces. The common
 runner always records them, so a normal cached GEMV run is sufficient.
 
 ## `cellar_power_calculator.py`
@@ -123,7 +123,7 @@ python scripts/cellar_power_calculator.py \
   --mlog output/ramulator/results/output_gemv_256x256_gddr6.result \
   --mtiming output/ramulator/timing/output_gemv_256x256_gddr6.timing.yaml \
   --mcmd-trace output/ramulator/command_traces/output_gemv_256x256_gddr6.cmd \
-  --dram-energy-model improved \
+  --dram-energy-model trace-based \
   --head 1 --hidden 256 --fc 256 --token 1 --block 1 --ch_per_bl 32
 ```
 
@@ -131,10 +131,10 @@ python scripts/cellar_power_calculator.py \
 | --- | --- | --- |
 | `--mlog PATH` | yes | Main Ramulator result file. |
 | `--mtiming PATH` | yes | Matching `DRAMTimingExporter` timing YAML. |
-| `--mcmd-trace PREFIX` | improved model | Matching `TraceRecorder` prefix, without `.chN`. |
+| `--mcmd-trace PREFIX` | trace-based model | Matching `TraceRecorder` prefix, without `.chN`. |
 | `--plog PATH`, `--ptiming PATH` | when `ch_per_bl > ch_per_dv` | Result and timing YAML for the additional PIM stage. |
-| `--pcmd-trace PREFIX` | improved model with additional PIM stage | Trace prefix for `--plog`. |
-| `--dram-energy-model NAME` | no | `legacy` or `improved`; defaults to `legacy`. |
+| `--pcmd-trace PREFIX` | trace-based model with additional PIM stage | Trace prefix for `--plog`. |
+| `--dram-energy-model NAME` | no | `legacy` or `trace-based`; defaults to `legacy`. |
 | `--head N`, `--hidden N`, `--fc N`, `--token N` | yes | Workload dimensions used by Cellar's accelerator-side estimates. |
 | `--block N` | yes | Number of blocks. |
 | `--ch_per_bl N` | yes | Channels used by one block. |
@@ -144,4 +144,4 @@ python scripts/cellar_power_calculator.py \
 
 When `ch_per_bl <= ch_per_dv`, only the main run is needed. When
 `ch_per_bl > ch_per_dv`, `--plog` and `--ptiming` are required, and the
-improved model additionally requires `--pcmd-trace`.
+trace-based model additionally requires `--pcmd-trace`.
