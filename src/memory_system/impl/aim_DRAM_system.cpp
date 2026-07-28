@@ -222,26 +222,28 @@ public:
         bool is_AiM_request_remaining = false;
         for (int channel_id = 0; channel_id < MAX_CHANNEL_COUNT; channel_id++) {
             while (remaining_AiM_requests[channel_id].empty() == false) {
-                was_AiM_request_remaining = true;
+                was_AiM_request_remaining = true; // if requests were previously decoded, but were not delivered to all controllers in the previous cycle
                 // m_logger->info("[CLK {}] 0- Sending {} to channel {}", m_clk, remaining_AiM_requests[channel_id].front().str(), channel_id);
                 if (m_controllers[channel_id]->send(remaining_AiM_requests[channel_id].front()) == false) {
                     // m_logger->info("[CLK {}] 0- failed", m_clk, channel_id);
-                    is_AiM_request_remaining = true;
+                    is_AiM_request_remaining = true; // if previously-decoded requests are not delivered to all controllers this cycle, blocking
                     break;
                 }
                 remaining_AiM_requests[channel_id].pop();
             }
         }
 
-        if (stalled_AiM_requests == 0) {
-            if (was_AiM_request_remaining == true) {
-                if (is_AiM_request_remaining == false) {
+        if (stalled_AiM_requests == 0) {    // stalled_AiM_request == 0 means all previous "blocking" requests have been processed
+            if (was_AiM_request_remaining == true) {    // if requests were previously decoded, but were not delivered to all controllers in the previous cycle
+                if (is_AiM_request_remaining == false) {    // if previously-decoded request is delivered to all controllers in this cycle, 
+                                                            // pop this specific request (not yet removed from the request queue last cycle)
                     Request host_req = request_queue.front();
                     if (host_req.callback)
                         host_req.callback(host_req);
                     request_queue.pop();
                 }
-            } else if (request_queue.empty() == false) {
+                // else {previously-decoded requests are not delivered to all controllers this cycle, blocking}
+            } else if (request_queue.empty() == false) {    // no previously blocking request, go to next request
                 Request host_req = request_queue.front();
                 // m_logger->info("[CLK {}] Decoding {}...", m_clk, host_req.str());
                 bool all_AiM_requests_sent = true;
