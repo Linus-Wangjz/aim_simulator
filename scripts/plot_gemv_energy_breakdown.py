@@ -636,28 +636,24 @@ def main() -> int:
     rows = build_rows(args)
     groups = energy_component_groups(args.energy_scope, args.dram_energy_model, args.include_cellar_llm_overhead)
     output_stem = f"gemv_{args.energy_scope}_energy_breakdown"
+    power_stem = f"gemv_{args.energy_scope}_power_breakdown"
     if args.dram_energy_model != "legacy":
         output_stem = f"gemv_{args.energy_scope}_{args.dram_energy_model}_energy_breakdown"
+        power_stem = f"gemv_{args.energy_scope}_{args.dram_energy_model}_power_breakdown"
     csv_path = args.output_dir / f"{output_stem}.csv"
     write_csv(rows, csv_path, groups)
     print(f"[csv] {display_path(csv_path, root)}")
 
     if not args.no_plot and has_matplotlib:
-        energy_plot_path = args.output_dir / f"{output_stem}_mj.png"
-        if args.dram_energy_model == "legacy":
-            power_plot_path = args.output_dir / f"gemv_{args.energy_scope}_power_breakdown_w.png"
-        else:
-            power_plot_path = args.output_dir / f"{output_stem}_power_w.png"
+        energy_plot_path = args.output_dir / f"{output_stem}.png"
+        power_plot_path = args.output_dir / f"{power_stem}.png"
         write_energy_plot(rows, energy_plot_path, args.lpddr4_nccd_values, args.energy_scope, args.dram_energy_model, groups)
         write_power_plot(rows, power_plot_path, args.lpddr4_nccd_values, args.energy_scope, args.dram_energy_model, groups)
         print(f"[plot] {display_path(energy_plot_path, root)}")
         print(f"[plot] {display_path(power_plot_path, root)}")
     elif not args.no_plot:
-        energy_plot_path = args.output_dir / f"{output_stem}_mj.svg"
-        if args.dram_energy_model == "legacy":
-            power_plot_path = args.output_dir / f"gemv_{args.energy_scope}_power_breakdown_w.svg"
-        else:
-            power_plot_path = args.output_dir / f"{output_stem}_power_w.svg"
+        energy_plot_path = args.output_dir / f"{output_stem}.svg"
+        power_plot_path = args.output_dir / f"{power_stem}.svg"
         write_energy_svg(rows, energy_plot_path, args.lpddr4_nccd_values, args.energy_scope, args.dram_energy_model, groups)
         write_power_svg(rows, power_plot_path, args.lpddr4_nccd_values, args.energy_scope, args.dram_energy_model, groups)
         print(f"[plot] {display_path(energy_plot_path, root)} (SVG fallback; matplotlib is not installed)")

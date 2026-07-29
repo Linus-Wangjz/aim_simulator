@@ -108,7 +108,7 @@ def read_run_statistics(stat_path, timing_path):
     return stat
 
 
-def trace_based_activity_cycles(trace_prefix, dram_impl, memory_system_cycles):
+def trace_based_activity_cycles(trace_prefix, dram_impl, memory_system_cycles, timing):
     trace_paths = command_trace_files(trace_prefix)
     if not trace_paths:
         raise FileNotFoundError(
@@ -119,6 +119,14 @@ def trace_based_activity_cycles(trace_prefix, dram_impl, memory_system_cycles):
     all_bank_count = 16 if dram_impl == "GDDR6" else 8
     bankgroup_index = 1 if dram_impl == "GDDR6" else 2
     bank_index = 2 if dram_impl == "GDDR6" else 3
+    use_idd0_split = dram_impl in {"LPDDR4", "LPDDR4X"}
+    act_dynamic_cycles = 0
+    pre_dynamic_cycles = 0
+    if use_idd0_split:
+        act_dynamic_cycles = timing["nRAS"]
+        pre_dynamic_cycles = timing["nRC"] - timing["nRAS"]
+        if act_dynamic_cycles <= 0 or pre_dynamic_cycles <= 0:
+            raise ValueError(f"Invalid ACT/PRE timing window in resolved timing for {trace_prefix}")
     totals = {
         "ACT_STBY_cycles": 0.00,
         "PRE_STBY_cycles": 0.00,
@@ -129,6 +137,8 @@ def trace_based_activity_cycles(trace_prefix, dram_impl, memory_system_cycles):
         "PIM_cycles": 0.00,
     }
 
+    all_bank_mask = (1 << all_bank_count) - 1
+
     def account_interval(cycles, open_banks, previous_activities):
         if cycles < 0:
             raise ValueError(f"Command trace is not monotonic: {trace_prefix}")
@@ -138,6 +148,19 @@ def trace_based_activity_cycles(trace_prefix, dram_impl, memory_system_cycles):
             totals["PRE_STBY_cycles"] += cycles
         for activity, scale in previous_activities:
             totals[f"{activity}_cycles"] += scale * cycles
+
+    def mask_for_bank(address):
+        bank = address[bank_index]
+        if not 0 <= bank < all_bank_count:
+            raise ValueError(f"Invalid bank {bank} in TraceRecorder entry for {trace_prefix}")
+        return 1 << bank
+
+    def mask_for_bankgroup(address):
+        bankgroup = address[bankgroup_index]
+        first_bank = bankgroup * 4
+        if bankgroup < 0 or first_bank + 4 > all_bank_count:
+            raise ValueError(f"Invalid bank group {bankgroup} in TraceRecorder entry for {trace_prefix}")
+        return ((1 << 4) - 1) << first_bank
 
     for path in trace_paths:
         issued = parse_command_trace(path)
@@ -155,29 +178,48 @@ def trace_based_activity_cycles(trace_prefix, dram_impl, memory_system_cycles):
             activities = []
 
             if command == "ACT16" or command == "ACT8-2":
-                # A broadcast ACT opens every bank, so charge one single-bank
-                # ACT-energy event per affected bank.
-                activities.append(("ACT", float(all_bank_count)))
-                open_banks = (1 << all_bank_count) - 1
+                if use_idd0_split:
+                    # IDD0 characterizes a fixed ACT/PRE test window. ACT's
+                    # dynamic energy uses nRAS; the actual open-row lifetime
+                    # is accounted separately by ACT_STBY.
+                    totals["ACT_cycles"] += all_bank_count * act_dynamic_cycles
+                else:
+                    activities.append(("ACT", float(all_bank_count)))
+                open_banks = all_bank_mask
             elif command == "ACT4" or command == "ACT4-2":
-                activities.append(("ACT", 4.00))
-                bankgroup = addr[bankgroup_index]
-                for bank in range(bankgroup * 4, (bankgroup + 1) * 4):
-                    open_banks |= 1 << bank
+                mask = mask_for_bankgroup(addr)
+                if use_idd0_split:
+                    totals["ACT_cycles"] += 4 * act_dynamic_cycles
+                else:
+                    activities.append(("ACT", 4.00))
+                open_banks |= mask
             elif command == "ACT" or command == "ACT-2":
-                activities.append(("ACT", 1.00))
-                open_banks |= 1 << addr[bank_index]
+                mask = mask_for_bank(addr)
+                if use_idd0_split:
+                    totals["ACT_cycles"] += act_dynamic_cycles
+                else:
+                    activities.append(("ACT", 1.00))
+                open_banks |= mask
             elif command in {"PREA", "WRA16", "WRA8"}:
-                activities.append(("PRE", all_bank_count))
+                if use_idd0_split:
+                    totals["PRE_cycles"] += all_bank_count * pre_dynamic_cycles
+                else:
+                    activities.append(("PRE", all_bank_count))
                 open_banks = 0
             elif command == "PRE4":
-                activities.append(("PRE", 4.00))
-                bankgroup = addr[bankgroup_index]
-                for bank in range(bankgroup * 4, (bankgroup + 1) * 4):
-                    open_banks &= ~(1 << bank)
+                mask = mask_for_bankgroup(addr)
+                if use_idd0_split:
+                    totals["PRE_cycles"] += 4 * pre_dynamic_cycles
+                else:
+                    activities.append(("PRE", 4.00))
+                open_banks &= ~mask
             elif command in {"PRE", "RDA", "WRA"}:
-                activities.append(("PRE", 1.00))
-                open_banks &= ~(1 << addr[bank_index])
+                mask = mask_for_bank(addr)
+                if use_idd0_split:
+                    totals["PRE_cycles"] += pre_dynamic_cycles
+                else:
+                    activities.append(("PRE", 1.00))
+                open_banks &= ~mask
             elif command == "REFab":
                 open_banks = 0
 
@@ -203,7 +245,12 @@ def trace_based_activity_cycles(trace_prefix, dram_impl, memory_system_cycles):
 
 
 def trace_based_dram_energy(stat, dram_power, command_trace_prefix, pcie_bits):
-    activity_cycles = trace_based_activity_cycles(command_trace_prefix, stat["dram_impl"], stat["cycles"])
+    activity_cycles = trace_based_activity_cycles(
+        command_trace_prefix,
+        stat["dram_impl"],
+        stat["cycles"],
+        stat["timing"],
+    )
     tCK_ps = stat["tCK_ps"]
     pim_power_scale = PIM_POWER_SCALE[stat["dram_impl"]]
     pim_active_power = pim_power_scale * dram_power["RD"] / (stat["pim_tccd_cycles"] / 2.00)
@@ -237,6 +284,9 @@ def legacy_command_activity_counts(stat):
         act_commands = stat["ACT-2"]
         act_commands += 4.00 * stat["ACT4-2"]
         act_commands += bank_count * stat["ACT8-2"]
+        pre_commands = stat["PRE"] + stat["RDA"] + stat["WRA"]
+        pre_commands += 4.00 * stat["PRE4"]
+        pre_commands += bank_count * (stat["PREA"] + stat["WRA8"])
         read_commands = stat["RDCP"] + stat["RD"] + stat["RDA"]
         read_commands += bank_count * stat["AF8"] + stat["RDMAC8"] + stat["RDAF8"]
         write_commands = stat["WRCP"] + stat["WR"] + stat["WRA"]
@@ -247,6 +297,9 @@ def legacy_command_activity_counts(stat):
         act_commands = stat["ACT"]
         act_commands += 4.00 * stat["ACT4"]
         act_commands += bank_count * stat["ACT16"]
+        pre_commands = stat["PRE"] + stat["RDA"] + stat["WRA"]
+        pre_commands += 4.00 * stat["PRE4"]
+        pre_commands += bank_count * (stat["PREA"] + stat["WRA16"])
         read_commands = stat["RDCP"] + stat["RD"] + stat["RDA"]
         read_commands += bank_count * stat["AF16"] + stat["RDMAC16"] + stat["RDAF16"]
         write_commands = stat["WRCP"] + stat["WR"] + stat["WRA"]
@@ -256,16 +309,26 @@ def legacy_command_activity_counts(stat):
         raise ValueError(f"Unsupported DRAM implementation for legacy energy: {timing_impl}")
 
     pim_commands += (stat["EWMUL16"] + stat["EWMUL8"]) / 4.00
-    return act_commands, read_commands, write_commands, pim_commands
+    return act_commands, pre_commands, read_commands, write_commands, pim_commands
 
 
 def legacy_dram_energy(stat, dram_power, pcie_bits):
-    act_commands, read_commands, write_commands, pim_commands = legacy_command_activity_counts(stat)
+    act_commands, pre_commands, read_commands, write_commands, pim_commands = legacy_command_activity_counts(stat)
     pim_active_power = PIM_POWER_SCALE[stat["dram_impl"]] * dram_power["RD"]
     pim_active_power /= stat["pim_tccd_cycles"] / 2.00
 
+    if stat["dram_impl"] in {"LPDDR4", "LPDDR4X"}:
+        act_pre_energy = (
+            dram_power["ACT"] * act_commands * stat["timing"]["nRAS"]
+            + dram_power["PRE"] * pre_commands * (stat["timing"]["nRC"] - stat["timing"]["nRAS"])
+        ) * stat["tCK_ps"] / 1e12
+    else:
+        # Preserve the existing GDDR6 command-count model: its power table
+        # does not provide the IDD rails required to split ACT and PRE.
+        act_pre_energy = dram_power["ACT"] * act_commands * stat["tRC_ns"] / GIGA
+
     return {
-        "ACT/PRE": dram_power["ACT"] * act_commands * stat["tRC_ns"] / GIGA,
+        "ACT/PRE": act_pre_energy,
         "RD": dram_power["RD"] * read_commands * stat["tBL_ns"] / GIGA,
         "WR": dram_power["WR"] * write_commands * stat["tBL_ns"] / GIGA,
         "PIM": pim_active_power * pim_commands * stat["pim_tccd_ns"] / GIGA,

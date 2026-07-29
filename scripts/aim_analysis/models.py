@@ -8,7 +8,7 @@ PIM_TCCD_TIMING_KEY = {
     "LPDDR4": "nCCD",
     "LPDDR4X": "nCCD",
 }
-REQUIRED_TIMING_KEYS = ("tCK_ps", "nRC", "nBL")
+REQUIRED_TIMING_KEYS = ("tCK_ps", "nRAS", "nRC", "nBL")
 PIM_POWER_SCALE = {"GDDR6": 3.00, "LPDDR4": 1.50, "LPDDR4X": 1.50}
 
 GDDR6_DRAM_POWER = {
@@ -58,7 +58,7 @@ def power_from_idd(idd: dict[str, list[float]]) -> dict[str, float]:
         "ACT_STBY": rail_sum("IDD3N"),
         "PRE_STBY": rail_sum("IDD2N"),
         "ACT": rail_sum("IDD0", "IDD3N"),
-        "PRE": rail_sum("IDD0", "IDD3N"),
+        "PRE": rail_sum("IDD0", "IDD2N"),
         "WR": rail_sum("IDD4W", "IDD3N"),
         "RD": rail_sum("IDD4R", "IDD3N"),
     }

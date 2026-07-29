@@ -72,7 +72,7 @@ critical channel's issued-command trace. Outputs are written to
 
 ```bash
 python scripts/plot_gemv_cycle_breakdown.py --reuse-existing
-python scripts/plot_gemv_cycle_breakdown.py --lpddr4-nccd 6 --reuse-existing
+python scripts/plot_gemv_cycle_breakdown.py --lpddr4-nccd 2,6 --reuse-existing
 ```
 
 | Parameter | Default | Meaning |
@@ -104,7 +104,7 @@ python scripts/plot_gemv_energy_breakdown.py \
 | `--output-dir PATH` | `output/gemv_dram_energy_breakdown` | Directory for energy CSV and plots. |
 | `--nccd-values LIST` | `2,6` | Comma-separated LPDDR4 timing nCCD values. |
 | `--ch-per-dv N` | `32` | Channels represented by one device in system-level estimates. |
-| `--dram-energy-model NAME` | `legacy` | `legacy` estimates dynamic DRAM energy from command counts; `trace-based` replays actual command intervals from TraceRecorder for ACT/PRE, RD/WR, PIM, and standby energy. In both models, ACT4/ACT8/ACT16 are charged as 4/8/16 single-bank ACT events. |
+| `--dram-energy-model NAME` | `legacy` | `legacy` estimates dynamic DRAM energy from command counts; `trace-based` replays TraceRecorder timing. For LPDDR4/LPDDR4X, both use fixed IDD0 ACT/PRE windows per command, while trace-based additionally derives active/precharged standby from each bank's real ACT-to-PRE lifetime. ACT4/ACT8/ACT16 are charged as 4/8/16 single-bank ACT events. |
 | `--energy-scope NAME` | `dram` | `dram` includes DRAM components only; `system` additionally includes DQ, controller/PHY, and trace-relevant PNM components. |
 | `--pcie-bits N` | `0` | Optional host PCIe traffic included only in system scope. GEMV traces do not encode this traffic. |
 | `--include-cellar-llm-overhead` | off | In system scope, include Cellar's synthetic RMSNorm, Softmax, and RotEmbed PNM dynamic terms. |
