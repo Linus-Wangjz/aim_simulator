@@ -33,7 +33,10 @@ TRACE_BASED_DRAM_ENERGY_COMPONENTS = ["ACT", "PRE", "RD", "WR", "PIM", "ACT_STBY
 SYSTEM_COMPONENT_GROUPS = {
     "DQ_IO": ["DQ"],
     "CTRL_PHY": ["MEM_CTR"],
-    "PNM_STT": ["GB_STT", "SB_STT", "IB_STT", "RED_STT", "EXP_STT", "VEC_STT"],
+    "PNM_STT": [
+        "GB_STT", "SB_STT", "IB_STT", "RED_STT", "EXP_STT", "VEC_ADD_STT",
+        "VEC_MUL_STT", "CTR_STT", "TOPK_STT",
+    ],
     "PNM_DYN": ["GB_RD", "GB_WR"],
     "PNM_CTRL": ["DV_CTR"],
     "PCIe": ["PCIe"],
@@ -41,7 +44,9 @@ SYSTEM_COMPONENT_GROUPS = {
 CELLAR_LLM_OVERHEAD_GROUPS = {
     # These are synthetic Cellar LLM-side estimates for RMSNorm/Softmax/RotEmbed.
     # They are not trace-derived GEMV work, so they are opt-in for this script.
-    "PNM_LLM_DYN": ["SB_DYN", "IB_DYN", "RV_DYN", "RED_DYN", "EXP_DYN", "VEC_DYN"],
+    "PNM_LLM_DYN": [
+        "SB_DYN", "IB_DYN", "RV_DYN", "RED_DYN", "EXP_DYN", "VEC_ADD_DYN", "VEC_MUL_DYN"
+    ],
 }
 def dram_energy_components(dram_energy_model: str) -> list[str]:
     if dram_energy_model == "legacy":
@@ -85,7 +90,14 @@ def set_cellar_channel_count(ch_per_dv: int) -> None:
     cellar.CH_PER_DV = float(ch_per_dv)
     cellar.ACCEL_CYCLE = {
         "EXP": cellar.CH_PER_DV * cellar.SB_RD_CYCLE + cellar.EXP_LANE_CYCLE + cellar.SB_WR_CYCLE,
-        "VEC": cellar.CH_PER_DV * 2.00 * cellar.SB_RD_CYCLE + 1.00 + cellar.SB_WR_CYCLE,
+        "VEC_ADD": (
+            cellar.CH_PER_DV / cellar.SRAM_IO_PARALLEL * 2.00 * cellar.SB_RD_CYCLE
+            + 1.00 + cellar.SB_WR_CYCLE
+        ),
+        "VEC_MUL": (
+            cellar.CH_PER_DV / cellar.SRAM_IO_PARALLEL * 2.00 * cellar.SB_RD_CYCLE
+            + 1.00 + cellar.SB_WR_CYCLE
+        ),
     }
 
 

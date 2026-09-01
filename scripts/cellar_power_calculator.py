@@ -25,21 +25,29 @@ DRAM_ENERGY_MODELS = ("legacy", "trace-based")
 
 # RED: Reduction Tree
 # EXP: Exponent
-# VEC: Vector Add
+# VEC_ADD: Vector Add
+# VEC_MUL: Vector Multiply
 # SFT: Softmax
 # CTR: PIMDispatcher + CXLController + Decoder + pim_ld_st + accel_controller
 # DYN: Dynamic
 # STT: Static
-# Power in mW
-# TODO: Change SFT
-ACCEL_POWER = { "RED": {"SWITCH": 8.01e-03, "INT": 1.017, "LEAK": 3.34e+04},
-                "EXP": {"SWITCH": 3.41e-02, "INT": 3.231, "LEAK": 7.99e+04},
-                "VEC": {"SWITCH": 1.44e-02, "INT": 1.070, "LEAK": 4.31e+04},
-                "CTR": {"SWITCH": 9.00e-03 + 1.65e-02 + 1.40e-02 + 0.283 + 6.26e-04, "INT": 0.216 + 1.157 + 0.220 + 32.535 + 4.28e-02, "LEAK": 2.03e+03 + 9.01e+03 + 1.82e+03 + 2.54e+05 + 540.653},
-                "RV": 41}
-for accel_name in ["RED", "EXP", "VEC", "CTR"]:
+# Power in mW, migrated from cent_dev's 7 nm CENT data-sheet table (rows 60--69).
+ACCEL_POWER = {
+    "RED": {"SWITCH": 5.62e-02, "INT": 2.32e-01, "LEAK": 5.62e+03},
+    "EXP": {"SWITCH": 3.39e-02, "INT": 5.60e-01, "LEAK": 1.28e+04},
+    "VEC_ADD": {"SWITCH": 1.33e-01, "INT": 2.48e-01, "LEAK": 6.54e+03},
+    "VEC_MUL": {"SWITCH": 1.12e-01, "INT": 2.25e-01, "LEAK": 2.95e+03},
+    "TOPK": {"SWITCH": 2.92e-02, "INT": 7.47e-01, "LEAK": 3.77e+03},
+    "CTR": {
+        "SWITCH": 3.18e-03 + 3.36e-03 + 2.89e-03 + 2.37e-01 + 1.30e-04,
+        "INT": 2.49e-02 + 2.37e-01 + 4.51e-02 + 5.42e00 + 8.77e-03,
+        "LEAK": 2.87e02 + 1.48e03 + 2.94e02 + 4.36e04 + 8.78e01,
+    },
+    "RV": 3.96,
+}
+for accel_name in ["RED", "EXP", "VEC_ADD", "VEC_MUL", "TOPK", "CTR"]:
     ACCEL_POWER[accel_name]["DYN"] = float(ACCEL_POWER[accel_name]["SWITCH"] + ACCEL_POWER[accel_name]["INT"])
-    ACCEL_POWER[accel_name]["STT"] = float(ACCEL_POWER[accel_name]["LEAK"]) / float(GIGA)
+    ACCEL_POWER[accel_name]["STT"] = float(ACCEL_POWER[accel_name]["LEAK"]) / float(MEGA)
 
 RV_COUNT = 8
 # Latency of 1 SIMD operation
@@ -47,23 +55,45 @@ SB_RD_CYCLE = 1.00
 SB_WR_CYCLE = 1.00
 EXP_LANE_CYCLE = 11.00
 RV_RMSNorm_CYCLE = 26.00
-RV_ROTEmbed_CYCLE = 3.00 / RV_COUNT
+# Pipeline timing is amortized across the eight RISC-V cores, whereas dynamic
+# energy charges the full single-core rotary operation, matching cent_dev.
+RV_ROTEmbed_CYCLE_PIPELINE = 3.00 / RV_COUNT
+RV_ROTEmbed_CYCLE_SINGLE = 3.00
 RV_SFT_CYCLE_PIPELINE = 16.00 * SB_WR_CYCLE + 2.00 / RV_COUNT + 1.00 * SB_RD_CYCLE
 RV_SFT_CYCLE_SINGLE = 16.00 * SB_WR_CYCLE + 2.00 + 1.00 * SB_RD_CYCLE
 
-# latency of pipelining 32 accelerators
-# each having 16 SIMD lanes
-ACCEL_CYCLE = { "EXP": CH_PER_DV * SB_RD_CYCLE + EXP_LANE_CYCLE + SB_WR_CYCLE,
-                "VEC": CH_PER_DV * 2.00 * SB_RD_CYCLE + 1.00 + SB_WR_CYCLE}
+# Match cent_dev's device-level shared buffer: 32 independently accessible
+# 128-bit banks provide 512 B/cycle, so all 32 channel result streams can be
+# serviced in the same SRAM-I/O round.  The enlarged 4 MiB capacity is the
+# corresponding cent_dev power-model point (512 KiB x 8).
+SRAM_IO_PARALLEL = 32.00
+SHARED_BUFFER_CAPACITY_BYTES = 4 * 1024 * 1024
+
+# Latency of the 32 channel accelerators sharing the banked SRAM.  Compute
+# pipeline and output-write cycles remain visible after the SRAM reads become
+# parallel.
+ACCEL_CYCLE = {
+    "EXP": CH_PER_DV / SRAM_IO_PARALLEL * SB_RD_CYCLE + EXP_LANE_CYCLE + SB_WR_CYCLE,
+    "VEC_ADD": CH_PER_DV / SRAM_IO_PARALLEL * 2.00 * SB_RD_CYCLE + 1.00 + SB_WR_CYCLE,
+    "VEC_MUL": CH_PER_DV / SRAM_IO_PARALLEL * 2.00 * SB_RD_CYCLE + 1.00 + SB_WR_CYCLE,
+}
 
 # GB: Global Buffer
 # SB: Shared Buffer
 # STT: Static
 # RD: Read
 # WR: Write
-SRAM_POWER = {  "GB": {"STT": 0.06702101898, "RD": 0.2785010052, "WR": 0.3254884575},
-                "SB": {"STT": 0.6917736525, "RD": 3.207188769, "WR": 3.754155771},
-                "IB": {"STT": 18.81731768, "RD": 70.13266856, "WR": 92.43730523}}
+SRAM_POWER = {
+    "GB": {"STT": 0.1143044936, "RD": 0.5882285424, "WR": 0.7158797439},
+    # cent_dev: upgrade the shared buffer from 512 KiB to 4 MiB and its I/O
+    # from 16 B/cycle to 512 B/cycle.
+    "SB": {
+        "STT": 7.501322454 * 8,
+        "RD": 58.01415598 * 8,
+        "WR": 59.67170329 * 8,
+    },
+    "IB": {"STT": 18.81731768, "RD": 87.66582768, "WR": 115.546621},
+}
 
 # TRX: Transaction Engine
 # PHY: Physical Interface
@@ -374,16 +404,17 @@ def calculate_energy_and_latency(
     energy["MEM_CTR"] = (CTRL_POWER["TRX"] * ISR_COUNT + CTRL_POWER["PHY"] * CMD_COUNT) / CH_PER_CTRL * tCK_ps / 1e12
 
     GQA_factor = 1.00 + 1.00 / GQA
-    latency["RMSNorm_latency"] =  HiddenDim / 16.00 / 16.00 / CH_PER_DV * ACCEL_CYCLE["VEC"]    # EMB /16.00 /16.00 ADD
+    latency["RMSNorm_latency"] =  HiddenDim / 16.00 / 16.00 / CH_PER_DV * ACCEL_CYCLE["VEC_ADD"]    # EMB /16.00 /16.00 ADD
     latency["RMSNorm_latency"] += SB_RD_CYCLE + SB_WR_CYCLE + 1.00                              # 1 RED
     latency["RMSNorm_latency"] += RV_RMSNorm_CYCLE                                              # 1 RISCV
     latency["RMSNorm_latency"] = 2.00 * latency["RMSNorm_latency"] * tCK_ps / GIGA
     latency["Softmax_latency"] =  Tokens * Head / 16.00 / CH_PER_DV * ACCEL_CYCLE["EXP"]        # TOK*HEAD /16.00 EXP
-    latency["Softmax_latency"] += Tokens * Head / 16.00 / CH_PER_DV * ACCEL_CYCLE["VEC"]        # TOK*HEAD /16.00 ADD
+    latency["Softmax_latency"] += Tokens * Head / 16.00 / CH_PER_DV * ACCEL_CYCLE["VEC_ADD"]    # TOK*HEAD /16.00 ADD
+    latency["Softmax_latency"] += Tokens * Head / 16.00 / CH_PER_DV * ACCEL_CYCLE["VEC_MUL"] * 2.00  # TOK*HEAD /16.00, two normalization MULs
     latency["Softmax_latency"] += Head * 1.00 * SB_RD_CYCLE                                     # HEAD RED
     latency["Softmax_latency"] += Head * RV_SFT_CYCLE_PIPELINE                                  # HEAD RISCV
     latency["Softmax_latency"] = latency["Softmax_latency"] * tCK_ps / GIGA
-    latency["RotEmbed_latency"] = HiddenDim * RV_ROTEmbed_CYCLE                                 # EMB RISCV
+    latency["RotEmbed_latency"] = HiddenDim * RV_ROTEmbed_CYCLE_PIPELINE                        # EMB RISCV
     latency["RotEmbed_latency"] = GQA_factor * latency["RotEmbed_latency"] * tCK_ps / GIGA
 
     # Static
@@ -392,7 +423,10 @@ def calculate_energy_and_latency(
     energy["IB_STT"] = stat["latency"] * SRAM_POWER["IB"]["STT"] / KILO
     energy["RED_STT"] = stat["latency"] * ACCEL_POWER["RED"]["STT"] * CH_PER_DV / KILO
     energy["EXP_STT"] = stat["latency"] * ACCEL_POWER["EXP"]["STT"] * CH_PER_DV / KILO
-    energy["VEC_STT"] = stat["latency"] * ACCEL_POWER["VEC"]["STT"] * CH_PER_DV / KILO
+    energy["VEC_ADD_STT"] = stat["latency"] * ACCEL_POWER["VEC_ADD"]["STT"] * CH_PER_DV / KILO
+    energy["VEC_MUL_STT"] = stat["latency"] * ACCEL_POWER["VEC_MUL"]["STT"] * CH_PER_DV / KILO
+    energy["CTR_STT"] = stat["latency"] * ACCEL_POWER["CTR"]["STT"] * CH_PER_DV / KILO
+    energy["TOPK_STT"] = stat["latency"] * ACCEL_POWER["TOPK"]["STT"] * CH_PER_DV / KILO
 
     # SRAM Power
     energy["GB_RD"] = SRAM_POWER["GB"]["RD"] * stat["WRCP"] * tCK_ps / 1e12
@@ -413,15 +447,16 @@ def calculate_energy_and_latency(
     # Accelerator Power
     energy["RV_DYN"] = 2.00 * RV_RMSNorm_CYCLE * ACCEL_POWER["RV"] * tCK_ps / 1e12                       # RMSNorm: 1 RISCV
     energy["RV_DYN"] += Head * RV_SFT_CYCLE_SINGLE * ACCEL_POWER["RV"] * tCK_ps / 1e12                   # Softmax: HEAD RISCV
-    energy["RV_DYN"] += GQA_factor * HiddenDim * RV_ROTEmbed_CYCLE * ACCEL_POWER["RV"] * tCK_ps / 1e12   # RotEmbed: EMB RISCV
+    energy["RV_DYN"] += GQA_factor * HiddenDim * RV_ROTEmbed_CYCLE_SINGLE * ACCEL_POWER["RV"] * tCK_ps / 1e12   # RotEmbed: EMB RISCV
 
     energy["RED_DYN"] = 2.00 * (1.00 * ACCEL_POWER["RED"]["DYN"]) * tCK_ps / 1e12                    # 1 RED (RMSNorm)
     energy["RED_DYN"] += Head * ACCEL_POWER["RED"]["DYN"] * tCK_ps / 1e12                           # HEAD RED (Softmax)
 
     energy["EXP_DYN"] = Tokens * Head / 16.00 * ACCEL_POWER["EXP"]["DYN"] * tCK_ps / 1e12          # TOK*HEAD /16.00 EXP (Softmax)
 
-    energy["VEC_DYN"] = 2.00 * HiddenDim / 16.00 / 16.00 * ACCEL_POWER["VEC"]["DYN"] * tCK_ps / 1e12     # EMB /16.00 /16.00 ADD (RMSNorm) [First 16.00 is #SIMD lanes, Second is because of PU 16.00-to-1 MAC]
-    energy["VEC_DYN"] += Tokens * Head / 16.00 * ACCEL_POWER["VEC"]["DYN"] * tCK_ps / 1e12              # TOK*HEAD /16.00 ADD (Softmax)
+    energy["VEC_ADD_DYN"] = 2.00 * HiddenDim / 16.00 / 16.00 * ACCEL_POWER["VEC_ADD"]["DYN"] * tCK_ps / 1e12     # EMB /16.00 /16.00 ADD (RMSNorm) [First 16.00 is #SIMD lanes, Second is because of PU 16.00-to-1 MAC]
+    energy["VEC_ADD_DYN"] += Tokens * Head / 16.00 * ACCEL_POWER["VEC_ADD"]["DYN"] * tCK_ps / 1e12              # TOK*HEAD /16.00 ADD (Softmax)
+    energy["VEC_MUL_DYN"] = Tokens * Head / 16.00 * ACCEL_POWER["VEC_MUL"]["DYN"] * 2.00 * tCK_ps / 1e12  # TOK*HEAD /16.00, two Softmax normalization MULs
 
     # We simply assume all the other components have a switching activity of 0.5
     energy["DV_CTR"] = stat["latency"] * 0.5 * (ACCEL_POWER["CTR"]["STT"] + ACCEL_POWER["CTR"]["DYN"]) / KILO
@@ -468,10 +503,11 @@ def main():
 
     if args.ch_per_dv != CH_PER_DV:
         CH_PER_DV = args.ch_per_dv
-        # latency of pipelining 32 accelerators
-        # each having 16 SIMD lanes
-        ACCEL_CYCLE = { "EXP": CH_PER_DV * SB_RD_CYCLE + EXP_LANE_CYCLE + SB_WR_CYCLE,
-                        "VEC": CH_PER_DV * 2.00 * SB_RD_CYCLE + 1.00 + SB_WR_CYCLE}
+        ACCEL_CYCLE = {
+            "EXP": CH_PER_DV / SRAM_IO_PARALLEL * SB_RD_CYCLE + EXP_LANE_CYCLE + SB_WR_CYCLE,
+            "VEC_ADD": CH_PER_DV / SRAM_IO_PARALLEL * 2.00 * SB_RD_CYCLE + 1.00 + SB_WR_CYCLE,
+            "VEC_MUL": CH_PER_DV / SRAM_IO_PARALLEL * 2.00 * SB_RD_CYCLE + 1.00 + SB_WR_CYCLE,
+        }
 
     energy_token = {}
     power_alldv = {}
@@ -552,7 +588,7 @@ def main():
     print(sum(energy_token[component] for component in ["ACT/PRE", "ACT", "PRE", "RD", "WR", "PIM", "ACT_STBY", "PRE_STBY", "GB_STT", "GB_RD", "GB_WR"] if component in energy_token), end=",")
     print(energy_token["MEM_CTR"], end=",")
     print(energy_token["DQ"], end=",")
-    print(energy_token["IB_STT"] + energy_token["SB_STT"] + energy_token["RED_STT"] + energy_token["EXP_STT"] + energy_token["VEC_STT"] + energy_token["IB_DYN"] + energy_token["SB_DYN"] + energy_token["RV_DYN"] + energy_token["RED_DYN"] + energy_token["EXP_DYN"] + energy_token["VEC_DYN"] + energy_token["DV_CTR"], end=",")
+    print(energy_token["IB_STT"] + energy_token["SB_STT"] + energy_token["RED_STT"] + energy_token["EXP_STT"] + energy_token["VEC_ADD_STT"] + energy_token["VEC_MUL_STT"] + energy_token["CTR_STT"] + energy_token["TOPK_STT"] + energy_token["IB_DYN"] + energy_token["SB_DYN"] + energy_token["RV_DYN"] + energy_token["RED_DYN"] + energy_token["EXP_DYN"] + energy_token["VEC_ADD_DYN"] + energy_token["VEC_MUL_DYN"] + energy_token["DV_CTR"], end=",")
     print(energy_token["PCIe"], end=",")
     total_energy = 0
     for comp in energy_token.keys():
@@ -572,7 +608,7 @@ def main():
     print(sum(power_alldv[component] for component in ["ACT/PRE", "ACT", "PRE", "RD", "WR", "PIM", "ACT_STBY", "PRE_STBY", "GB_STT", "GB_RD", "GB_WR"] if component in power_alldv), end=",")
     print(power_alldv["MEM_CTR"], end=",")
     print(power_alldv["DQ"], end=",")
-    print(power_alldv["IB_STT"] + power_alldv["SB_STT"] + power_alldv["RED_STT"] + power_alldv["EXP_STT"] + power_alldv["VEC_STT"] + power_alldv["IB_DYN"] + power_alldv["SB_DYN"] + power_alldv["RV_DYN"] + power_alldv["RED_DYN"] + power_alldv["EXP_DYN"] + power_alldv["VEC_DYN"] + power_alldv["DV_CTR"], end=",")
+    print(power_alldv["IB_STT"] + power_alldv["SB_STT"] + power_alldv["RED_STT"] + power_alldv["EXP_STT"] + power_alldv["VEC_ADD_STT"] + power_alldv["VEC_MUL_STT"] + power_alldv["CTR_STT"] + power_alldv["TOPK_STT"] + power_alldv["IB_DYN"] + power_alldv["SB_DYN"] + power_alldv["RV_DYN"] + power_alldv["RED_DYN"] + power_alldv["EXP_DYN"] + power_alldv["VEC_ADD_DYN"] + power_alldv["VEC_MUL_DYN"] + power_alldv["DV_CTR"], end=",")
     print(power_alldv["PCIe"], end=",")
     total_power = 0
     for comp in power_alldv.keys():
@@ -587,9 +623,9 @@ def main():
     ctrl_power_cap = (CTRL_POWER["TRX"] + CTRL_POWER["PHY"]) * DV * CH_PER_DV / CH_PER_CTRL / KILO
     DQ_power_cap = (DQ_ENERGY * WORD_SIZE / stat_main["tBL_ns"]) * DV * CH_PER_DV / KILO
     DV_power_cap = SRAM_POWER["IB"]["STT"] + SRAM_POWER["SB"]["STT"] 
-    DV_power_cap += (ACCEL_POWER["RED"]["STT"] + ACCEL_POWER["EXP"]["STT"] + ACCEL_POWER["VEC"]["STT"] + ACCEL_POWER["CTR"]["STT"]) * CH_PER_DV
+    DV_power_cap += (ACCEL_POWER["RED"]["STT"] + ACCEL_POWER["EXP"]["STT"] + ACCEL_POWER["VEC_ADD"]["STT"] + ACCEL_POWER["VEC_MUL"]["STT"] + ACCEL_POWER["CTR"]["STT"] + ACCEL_POWER["TOPK"]["STT"]) * CH_PER_DV
     DV_power_cap += SRAM_POWER["IB"]["WR"] + SRAM_POWER["SB"]["WR"]
-    DV_power_cap += (ACCEL_POWER["RED"]["DYN"] + ACCEL_POWER["EXP"]["DYN"] + ACCEL_POWER["VEC"]["DYN"] + ACCEL_POWER["CTR"]["DYN"]) * CH_PER_DV
+    DV_power_cap += (ACCEL_POWER["RED"]["DYN"] + ACCEL_POWER["EXP"]["DYN"] + ACCEL_POWER["VEC_ADD"]["DYN"] + ACCEL_POWER["VEC_MUL"]["DYN"] + ACCEL_POWER["CTR"]["DYN"]) * CH_PER_DV
     DV_power_cap += ACCEL_POWER["RV"] * RV_COUNT
     DV_power_cap = DV_power_cap * DV / KILO
     PCIe_power_cap = (PCIE_ENERGY * WORD_SIZE / 1.00) * DV / KILO
