@@ -20,22 +20,40 @@ GDDR6_DRAM_POWER = {
     "RD": 876.3 / 2.00,
 }
 
-LPDDR4_IDD = {
+LPDDR4_WINBOND_IDD = {
     "VDD": [1.8, 1.1, 1.1],
     "IDD0": [9.0, 53.0, 0.1],
     "IDD2N": [0.6, 31.0, 0.1],
     "IDD3N": [2.0, 34.5, 0.1],
-    "IDD4W": [2.0, 265.0, 0.3],
     "IDD4R": [2.5, 287.0, 105.0],
+    "IDD4W": [2.0, 265.0, 0.3],
 }
 
-LPDDR4X_IDD = {
+LPDDR4X_WINBOND_IDD = {
     "VDD": [1.8, 1.1, 0.6],
     "IDD0": [9.0, 53.0, 0.1],
     "IDD2N": [0.6, 31.0, 0.1],
     "IDD3N": [2.0, 34.5, 0.1],
-    "IDD4W": [2.0, 265.0, 0.3],
     "IDD4R": [2.5, 287.0, 85.0],
+    "IDD4W": [2.0, 265.0, 0.3],
+}
+
+LPDDR4_MICRON_IDD = {
+    "VDD": [1.8, 1.1, 1.1],
+    "IDD0": [4.9, 32.0, 0.75],
+    "IDD2N": [2.0, 16.0, 0.75],
+    "IDD3N": [2.5, 20.0, 0.75],
+    "IDD4R": [4.5, 270.0, 79.62],
+    "IDD4W": [3.0, 210.0, 0.75],
+}
+
+LPDDR4X_MICRON_IDD = {
+    "VDD": [1.8, 1.1, 0.6],
+    "IDD0": [4.9, 32.0, 0.75],
+    "IDD2N": [2.0, 16.0, 0.75],
+    "IDD3N": [2.5, 20.0, 0.75],
+    "IDD4R": [4.5, 270.0, 61.57],
+    "IDD4W": [3.0, 210.0, 0.75],
 }
 
 
@@ -59,15 +77,17 @@ def power_from_idd(idd: dict[str, list[float]]) -> dict[str, float]:
         "PRE_STBY": rail_sum("IDD2N"),
         "ACT": rail_sum("IDD0", "IDD3N"),
         "PRE": rail_sum("IDD0", "IDD2N"),
-        "WR": rail_sum("IDD4W", "IDD3N"),
         "RD": rail_sum("IDD4R", "IDD3N"),
+        "WR": rail_sum("IDD4W", "IDD3N"),
     }
 
 
 DRAM_POWER_BY_IMPL = {
     "GDDR6": GDDR6_DRAM_POWER,
-    "LPDDR4": power_from_idd(LPDDR4_IDD),
-    "LPDDR4X": power_from_idd(LPDDR4X_IDD),
+    "LPDDR4": power_from_idd(LPDDR4_WINBOND_IDD),
+    "LPDDR4X": power_from_idd(LPDDR4X_WINBOND_IDD),
+    "LPDDR4_MICRON": power_from_idd(LPDDR4_MICRON_IDD),
+    "LPDDR4X_MICRON": power_from_idd(LPDDR4X_MICRON_IDD),
 }
 
 
