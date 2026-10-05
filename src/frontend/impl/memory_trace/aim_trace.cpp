@@ -38,6 +38,7 @@ private:
     bool remaining_req = false;
 
     int host_req_id = 0;
+    int m_attention_checkpoints = 0;
 
     std::function<void(Request &)> callback;
 
@@ -97,6 +98,7 @@ private:
 
         m_curr_trace_idx = 0;
         m_trace_reached_EOC = false;
+        m_attention_checkpoints = 0;
     }
 
     template <typename T>
@@ -148,7 +150,22 @@ private:
                     continue;
                 }
                 if (tokens[0] == "#") {
-                    // It's a comment
+                    if (tokens.size() == 3 && tokens[1] == "PHASE" && tokens[2] == "attention_end") {
+                        if (++m_attention_checkpoints != 1) {
+                            throw ConfigurationError("Trace has more than one Attention/FFN boundary");
+                        }
+                        // A real SYNC drains every channel before reporting the
+                        // current memory-system cycle. FFN then continues in
+                        // the same simulator run and DRAM state.
+                        req.type = Type::AIM;
+                        req.opcode = Opcode::ISR_SYNC;
+                        req.channel_mask = -1;
+                        req.host_req_id = host_req_id++;
+                        req.callback = [this](Request &) {
+                            std::cout << "attention_end_cycles " << m_memory_system->get_cycle() << std::endl;
+                        };
+                        return req;
+                    }
                     continue;
                 } else {
                     req.host_req_id = host_req_id++;

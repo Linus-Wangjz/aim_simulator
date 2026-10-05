@@ -501,6 +501,8 @@ public:
         }
     }
 
+    uint64_t get_cycle() const override { return m_clk; }
+
     float get_tCK() override {
         return m_dram->m_timing_vals("tCK_ps") / 1000.0f;
     }

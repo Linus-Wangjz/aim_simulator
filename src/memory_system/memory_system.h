@@ -1,6 +1,7 @@
 #ifndef RAMULATOR_MEMORYSYSTEM_MEMORY_H
 #define RAMULATOR_MEMORYSYSTEM_MEMORY_H
 
+#include <cstdint>
 #include <functional>
 #include <map>
 #include <string>
@@ -70,6 +71,7 @@ public:
     // virtual const SpecDef& get_supported_requests() = 0;
 
     virtual float get_tCK() { return -1.0f; };
+    virtual uint64_t get_cycle() const { return 0; };
 };
 
 } // namespace Ramulator
