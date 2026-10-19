@@ -15,6 +15,7 @@ MemorySystem:
     impl: LPDDR4
     org:
       preset: LPDDR4_AiM_org
+      channel_width: 16
     timing:
       preset: LPDDR4_AiM_timing
 

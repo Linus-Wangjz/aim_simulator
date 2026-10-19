@@ -23,7 +23,7 @@ public:
         {"LPDDR4_3200", // name
             {
                 3200,   // rate
-                4,      // nBL
+                8,      // nBL: BL16 transfers occupy 8 DDR clocks
                 20,     // nCL
                 29,     // nRCD (18ns)
                 0,      // nRCDRDMAC
@@ -63,7 +63,7 @@ public:
         {"LPDDR4_AiM_timing", // name
             {
                 3200,   // rate
-                4,      // nBL
+                8,      // nBL: BL16 transfers occupy 8 DDR clocks
                 20,     // nCL
                 29,     // nRCD
                 49,     // nRCDRDMAC (+20 cycles as in GDDR6 AIM)
@@ -104,7 +104,7 @@ public:
     /************************************************
    *                Organization
    ***********************************************/
-    const int m_internal_prefetch_size = 8;
+    const int m_internal_prefetch_size = 16;
 
     inline static constexpr ImplDef m_levels = {
         "channel",
@@ -457,7 +457,7 @@ public:
 private:
     void set_organization() {
         // Channel width
-        m_channel_width = param_group("org").param<int>("channel_width").default_val(32);
+        m_channel_width = param_group("org").param<int>("channel_width").default_val(16);
 
         // Organization
         m_organization.count.resize(m_levels.size(), -1);

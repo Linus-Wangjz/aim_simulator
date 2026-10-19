@@ -49,6 +49,14 @@ public:
         YAML::Emitter emitter;
         emitter << YAML::BeginMap;
         emitter << YAML::Key << "impl" << YAML::Value << m_dram->m_impl->get_name();
+        emitter << YAML::Key << "organization" << YAML::Value << YAML::BeginMap;
+        emitter << YAML::Key << "channels" << YAML::Value << m_dram->get_level_size("channel");
+        emitter << YAML::Key << "channel_width_bits" << YAML::Value << m_dram->m_channel_width;
+        emitter << YAML::Key << "dq_bits" << YAML::Value << m_dram->m_organization.dq;
+        emitter << YAML::Key << "prefetch" << YAML::Value << m_dram->m_internal_prefetch_size;
+        emitter << YAML::Key << "transaction_bytes" << YAML::Value
+                << m_dram->m_channel_width * m_dram->m_internal_prefetch_size / 8;
+        emitter << YAML::EndMap;
         emitter << YAML::Key << "timing" << YAML::Value << YAML::BeginMap;
         for (int timing_id = 0; timing_id < m_dram->m_timings.size(); timing_id++) {
             emitter << YAML::Key << std::string(m_dram->m_timings(timing_id));
