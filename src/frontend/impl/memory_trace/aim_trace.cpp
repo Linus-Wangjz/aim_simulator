@@ -38,6 +38,7 @@ private:
     bool remaining_req = false;
 
     int host_req_id = 0;
+    uint m_issue_width = 1;
 
     std::function<void(Request &)> callback;
 
@@ -54,6 +55,9 @@ public:
                                         .default_val(" ");
 
         m_clock_ratio = param<uint>("clock_ratio").required();
+        m_issue_width = param<uint>("issue_width").default_val(1);
+        if (m_issue_width < 1 || m_issue_width > 32)
+            throw ConfigurationError("AiMTrace issue_width must be in [1, 32]");
 
         assert(delimiter_str.length() == 1);
         if (delimiter_str == ",")
@@ -71,14 +75,19 @@ public:
     };
 
     void tick() override {
-        if ((remaining_req == false) && (m_trace_reached_EOC == false)) {
-            AiMTrace_request = get_host_request();
-            remaining_req = true;
-        }
-        if (remaining_req == true) {
-            bool request_sent = m_memory_system->send(AiMTrace_request);
-            if (request_sent)
-                remaining_req = false;
+        for (uint slot = 0; slot < m_issue_width; slot++) {
+            if (!remaining_req && !m_trace_reached_EOC) {
+                AiMTrace_request = get_host_request();
+                remaining_req = true;
+            }
+            if (!remaining_req)
+                break;
+            if (!m_memory_system->send(AiMTrace_request))
+                break;
+            remaining_req = false;
+            // Keep host ISR ordering and its existing multicast semantics.
+            if (AiMTrace_request.type == Type::AIM)
+                break;
         }
     };
 
